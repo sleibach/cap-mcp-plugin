@@ -34,7 +34,7 @@
       "base_path": "/mcp",
       "trusted_proxies": true,
       "oauth": {
-        "proxy": "disabled",
+        "proxy": "enabled",
         "protected_resource": "enabled"
       }
     }

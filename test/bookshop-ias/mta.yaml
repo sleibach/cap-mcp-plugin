@@ -101,7 +101,7 @@ resources:
           token-policy:
             access-token-format: "jwt"
           redirect-uris:
-            - http://localhost:5000/login/callback?authType=ias
+            - http://localhost:*/oauth/callback
             - ~{app-api/app-protocol}://*~{app-api/app-uri}/login/callback
           post-logout-redirect-uris:
             - ~{app-api/app-protocol}://*~{app-api/app-uri}/*/logout.html
