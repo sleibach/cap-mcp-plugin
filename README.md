@@ -494,10 +494,20 @@ Configure the MCP plugin through your CAP application's `package.json` or `.cdsr
 | `version` | string | package.json version | MCP server version |
 | `auth` | `"inherit"` \| `"none"` | `"inherit"` | Authentication mode |
 | `instructions` | string | `null` | MCP server instructions for agents |
+| `public_url` | string | _derived_ | Canonical external base URL advertised in OAuth metadata. Set when running behind an approuter at a different FQDN. |
+| `base_path` | string | `"/mcp"` | Mount path exposed to MCP clients — used as `resource` in `oauth-protected-resource` metadata. |
+| `trusted_proxies` | boolean | `false` | Honor `X-Forwarded-Host/Proto/Prefix` when building absolute URLs. Enable when fronted by an approuter. |
+| `oauth.proxy` | `"enabled"` \| `"disabled"` | `"enabled"` | Expose `/oauth/*` and `/.well-known/oauth-authorization-server` on the CAP backend. Set to `"disabled"` when an upstream approuter handles OAuth. |
+| `oauth.protected_resource` | `"enabled"` \| `"disabled"` | `"enabled"` | Register the MCP-spec-required `/.well-known/oauth-protected-resource` metadata endpoint (RFC 9728). |
 | `capabilities.resources.listChanged` | boolean | `true` | Enable resource list change notifications |
 | `capabilities.resources.subscribe` | boolean | `false` | Enable resource subscriptions |
 | `capabilities.tools.listChanged` | boolean | `true` | Enable tool list change notifications |
 | `capabilities.prompts.listChanged` | boolean | `true` | Enable prompt list change notifications |
+
+> **Running behind a SAP Application Router?** See
+> [docs/approuter-integration.md](./docs/approuter-integration.md) for
+> the full deployment recipe — including managed approuter route
+> declarations, XSUAA + IAS coexistence, and multi-tenancy notes.
 
 ### Authentication Configuration
 

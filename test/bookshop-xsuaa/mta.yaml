@@ -1,0 +1,99 @@
+_schema-version: 3.3.0
+ID: bookshop-xsuaa
+version: 1.0.0
+description: "A simple CAP project."
+parameters:
+  enable-parallel-deployments: true
+build-parameters:
+  before-all:
+    - builder: custom
+      commands:
+        # Workspace-aware install (bookshop-xsuaa is a workspace member of ../..).
+        - npm ci
+        # Pack the local plugin into a tarball next to this mta.yaml. The
+        # source package.json uses "file:../.." (resolves to cap-mcp root from
+        # bookshop-xsuaa/); that literal path does NOT survive `cds build` —
+        # gen/srv/package.json would carry the same string but ../.. from
+        # gen/srv/ points to bookshop-xsuaa/ (wrong package). A tarball reference
+        # survives the copy because it's relative to its own dir.
+        - npm pack ../.. --silent --pack-destination .
+        - npx cds build --production
+        # Move the tarball into gen/srv (stable name), rewrite gen/srv/package.json
+        # to reference it, and generate a lockfile so `builder: npm-ci` can
+        # install deterministically. Using a small script for cross-platform
+        # file ops — mbt exec's commands directly (no shell globbing).
+        - node -e "const fs=require('fs'),path=require('path');const src=fs.readdirSync('.').find(f=>/^gavdi-cap-mcp-.*\\.tgz$/.test(f));if(!src)throw new Error('no tgz');fs.copyFileSync(src,'gen/srv/cap-mcp.tgz');fs.unlinkSync(src);const p='gen/srv/package.json',j=JSON.parse(fs.readFileSync(p));j.dependencies['@gavdi/cap-mcp']='file:./cap-mcp.tgz';fs.writeFileSync(p,JSON.stringify(j,null,2)+'\\n');"
+        - npm install --prefix gen/srv --package-lock-only --omit=dev --ignore-scripts
+modules:
+  - name: bookshop-xsuaa-srv
+    type: nodejs
+    path: gen/srv
+    parameters:
+      instances: 1
+      buildpack: nodejs_buildpack
+    build-parameters:
+      builder: npm-ci
+    provides:
+      - name: srv-api # required by consumers of CAP services (e.g. approuter)
+        properties:
+          srv-url: ${default-url}
+    requires:
+      - name: bookshop-xsuaa-auth
+      - name: bookshop-xsuaa-db
+
+  - name: bookshop-xsuaa-db-deployer
+    type: hdb
+    path: gen/db
+    parameters:
+      buildpack: nodejs_buildpack
+    requires:
+      - name: bookshop-xsuaa-db
+  - name: bookshop-xsuaa
+    type: approuter.nodejs
+    path: app/router
+    parameters:
+      keep-existing-routes: true
+      disk-quota: 256M
+      memory: 256M
+    requires:
+      - name: srv-api
+        group: destinations
+        properties:
+          name: srv-api # must be used in xs-app.json as well
+          url: ~{srv-url}
+          forwardAuthToken: true
+      - name: bookshop-xsuaa-auth
+    provides:
+      - name: app-api
+        properties:
+          app-protocol: ${protocol}
+          app-uri: ${default-uri}
+
+resources:
+  - name: bookshop-xsuaa-auth
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: xsuaa
+      service-plan: application
+      path: ./xs-security.json
+      config:
+        xsappname: bookshop-xsuaa-${org}-${space}
+        tenant-mode: dedicated
+        oauth2-configuration:
+          credential-types:
+            - "binding-secret"
+            - "x509"
+          redirect-uris:
+            - https://*~{app-api/app-uri}/**
+        role-collections:
+          - name: 'admin (bookshop-xsuaa ${org}-${space})'
+            description: 'generated'
+            role-template-references:
+              - '$XSAPPNAME.admin'
+    requires:
+      - name: app-api
+  - name: bookshop-xsuaa-db
+    type: com.sap.xs.hdi-container
+    parameters:
+      service: hana
+      service-plan: hdi-shared

@@ -87,6 +87,8 @@
     ]
   },
   "workspaces": [
-    "test/demo"
+    "test/demo",
+    "test/bookshop-xsuaa",
+    "test/bookshop-ias"
   ]
 }
