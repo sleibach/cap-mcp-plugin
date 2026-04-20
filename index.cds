@@ -1,1 +1,1 @@
-namespace gavdi.mcp;
+namespace cap.plugins.mcp;

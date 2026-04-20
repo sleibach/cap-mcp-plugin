@@ -22,7 +22,7 @@ build-parameters:
         # to reference it, and generate a lockfile so `builder: npm-ci` can
         # install deterministically. Using a small script for cross-platform
         # file ops — mbt exec's commands directly (no shell globbing).
-        - node -e "const fs=require('fs'),path=require('path');const src=fs.readdirSync('.').find(f=>/^gavdi-cap-mcp-.*\\.tgz$/.test(f));if(!src)throw new Error('no tgz');fs.copyFileSync(src,'gen/srv/cap-mcp.tgz');fs.unlinkSync(src);const p='gen/srv/package.json',j=JSON.parse(fs.readFileSync(p));j.dependencies['@gavdi/cap-mcp']='file:./cap-mcp.tgz';fs.writeFileSync(p,JSON.stringify(j,null,2)+'\\n');"
+        - node -e "const fs=require('fs'),path=require('path');const src=fs.readdirSync('.').find(f=>/^cap-mcp-plugin-.*\\.tgz$/.test(f));if(!src)throw new Error('no tgz');fs.copyFileSync(src,'gen/srv/cap-mcp.tgz');fs.unlinkSync(src);const p='gen/srv/package.json',j=JSON.parse(fs.readFileSync(p));j.dependencies['cap-mcp-plugin']='file:./cap-mcp.tgz';fs.writeFileSync(p,JSON.stringify(j,null,2)+'\\n');"
         - npm install --prefix gen/srv --package-lock-only --omit=dev --ignore-scripts
 modules:
   - name: bookshop-xsuaa-srv

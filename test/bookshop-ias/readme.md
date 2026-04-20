@@ -1,7 +1,7 @@
 # bookshop-ias — MCP sample behind an approuter, with IAS
 
 Scaffolded via `cds init bookshop-ias --add nodejs,sample,ias,hana,mta,approuter`.
-Wired up to the sibling `@gavdi/cap-mcp` plugin with the approuter topology
+Wired up to the sibling `cap-mcp-plugin` package with the approuter topology
 described in [`../../docs/approuter-integration.md`](../../docs/approuter-integration.md).
 
 The MTA uses `credential-type: X509_GENERATED` (mTLS) between the approuter

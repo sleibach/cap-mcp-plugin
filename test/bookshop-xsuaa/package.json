@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "dependencies": {
     "@cap-js/hana": "^2",
-    "@gavdi/cap-mcp": "file:../..",
+    "cap-mcp-plugin": "file:../..",
     "@sap/cds": "^9",
     "@sap/xssec": "^4"
   },

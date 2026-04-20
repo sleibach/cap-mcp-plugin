@@ -1,47 +1,48 @@
-# CAP MCP Plugin - AI With Ease
-![NPM Version](https://img.shields.io/npm/v/%40gavdi%2Fcap-mcp) ![NPM License](https://img.shields.io/npm/l/%40gavdi%2Fcap-mcp) ![NPM Downloads](https://img.shields.io/npm/dm/%40gavdi%2Fcap-mcp) ![GitHub commits since latest release](https://img.shields.io/github/commits-since/gavdilabs/cap-mcp-plugin/latest)
+## CAP MCP Plugin
 
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](./LICENSE.md)
 
+A CAP (SAP Cloud Application Programming) plugin that generates a Model Context Protocol (MCP) server from your CDS model. Annotated entities become MCP resources, functions and actions become tools, and services can expose reusable prompt templates.
 
-> This implementation is based on the Model Context Protocol (MCP) put forward by Anthropic.
-> For more information on MCP, please have a look at their [official documentation.](https://modelcontextprotocol.io/introduction)
+## Credits
 
-# CAP-MCP Plugin
+This plugin is based on the excellent [`@gavdi/cap-mcp`](https://www.npmjs.com/package/@gavdi/cap-mcp) plugin by [Gavdi Labs](https://github.com/gavdilabs/cap-mcp-plugin). The annotation model, entity-to-resource generation, tool wrapping, and prompt templates all originate from that project. Full credit for the original design and implementation goes to the Gavdi Labs team and the contributors of the upstream repository.
 
-A CAP (Cloud Application Programming) plugin that automatically generates Model Context Protocol (MCP) servers from your CAP services using simple annotations.
-Transform your CAP OData services into AI-accessible resources, tools, and prompts with minimal configuration.
+This repository is an independent development line that extends the original with additional work around OAuth, IAS integration, approuter deployment, and related enterprise-auth concerns. Upstream and this fork are maintained separately; if you want the canonical, vendor-supported plugin, use the upstream.
 
-## 🚀 The Power of MCP for CAP Applications
+This line is **not** intended for pull requests back into Gavdi’s repo. On GitHub the repository may still be registered as a **fork**, which causes compare/merge suggestions from the upstream network until you detach it (one-time, on github.com): **[Settings → General](https://github.com/sleibach/cap-mcp-plugin/settings)** → scroll to **Danger Zone** → **Leave fork network** and confirm with the repository name. Your local clone should only list **`origin`** (`git remote -v`); do not add an `upstream` remote unless you explicitly want to track Gavdi’s branch.
 
-The Model Context Protocol bridges the gap between your enterprise data and AI agents.
-By integrating MCP with your CAP applications, you unlock:
+For protocol details, see the [MCP specification](https://modelcontextprotocol.io).
 
-- **AI-Native Data Access**: Your CAP services become directly accessible to MCP enabled AI agents like Claude, enabling natural language queries against your business data
-- **Enterprise Integration**: Seamlessly connect AI tools to your SAP systems, databases, and business logic
-- **Intelligent Automation**: Enable AI agents to perform complex business operations by combining multiple CAP service calls
-- **Developer Productivity**: Allow AI assistants to help developers understand, query, and work with your CAP data models
-- **Business Intelligence**: Transform your structured business data into AI-queryable resources for insights and analysis
+## Features
 
-## 🚀 Quick Setup
+- Expose CDS entities as MCP resources with OData v4 query support (`$filter`, `$orderby`, `$top`, `$skip`, `$select`).
+- Expose CDS functions and actions as MCP tools.
+- Wrap entities as CRUD-style tools (`query`, `get`, optional `create` / `update`) for LLM tool-use.
+- Declare reusable prompt templates.
+- Request user confirmation or parameter input before tool execution (elicitation).
+- Filter sensitive fields from MCP output via `@mcp.omit`.
+- Enrich schemas for AI agents via `@mcp.hint` on elements and parameters.
+- Auth modes: `inherit` (use CAP's configured auth — `mocked`, `basic`, `jwt`, `xsuaa`, `ias`) or `none`.
+- Built-in OAuth proxy with RFC 9728 protected-resource metadata and DCR emulation for IAS.
 
-### Prerequisites
+## Requirements
 
-- **Node.js**: Version 18 or higher
-- **SAP CAP**: Version 9 or higher
-- **Express**: Version 4 or higher
-- **TypeScript**: Optional but recommended
+- Node.js 18+
+- `@sap/cds` 9+
+- `express` 4+
 
-### Step 1: Install the Plugin
+## Install
 
 ```bash
-npm install @gavdi/cap-mcp
+npm install cap-mcp-plugin
 ```
 
-The plugin follows CAP's standard plugin architecture and will automatically integrate with your CAP application upon installation.
+The plugin follows CAP's standard plugin architecture and is picked up automatically.
 
-### Step 2: Configure Your CAP Application
+## Configure
 
-Add MCP configuration to your `package.json`:
+Add an `mcp` block under `cds` in `package.json`:
 
 ```json
 {
@@ -57,9 +58,7 @@ Add MCP configuration to your `package.json`:
 }
 ```
 
-### Step 3: Add MCP Annotations
-
-Annotate your CAP services with `@mcp` annotations:
+## Annotate your services
 
 ```cds
 // srv/catalog-service.cds
@@ -72,10 +71,9 @@ service CatalogService {
   }
   entity Books as projection on my.Books;
 
-  // Optionally expose Books as tools for LLMs (query/get enabled by default config)
   annotate CatalogService.Books with @mcp.wrap: {
     tools: true,
-    modes: ['query','get'],
+    modes: ['query', 'get'],
     hint: 'Use for read-only lookups of books'
   };
 
@@ -88,53 +86,20 @@ service CatalogService {
 }
 ```
 
-> **Note**: The `@mcp.wrap.hint` annotation provides operation-level guidance, while `@mcp.hint` on individual elements provides field-level descriptions. Both work together to give AI agents comprehensive context.
-
-### Step 4: Start Your Application
+## Run
 
 ```bash
 cds serve
 ```
 
-The MCP server will be available at:
-- **MCP Endpoint**: `http://localhost:4004/mcp`
-- **Health Check**: `http://localhost:4004/mcp/health`
+Endpoints:
 
-### Step 5: Test with MCP Inspector
+- MCP: `http://localhost:4004/mcp`
+- Health: `http://localhost:4004/mcp/health`
 
-```bash
-npx @modelcontextprotocol/inspector
-```
+## Annotation reference
 
-Connect to `http://localhost:4004/mcp` to explore your generated MCP resources, tools, and prompts.
-
-## 🎯 Features
-
-This plugin transforms your annotated CAP services into a fully functional MCP server that can be consumed by any MCP-compatible AI client.
-
-- **📊 Resources**: Expose CAP entities as MCP resources with OData v4 query capabilities
-- **🔧 Tools**: Convert CAP functions and actions into executable MCP tools
-- **🧩 Entity Wrappers (optional)**: Expose CAP entities as tools (`query`, `get`, and optionally `create`, `update`) for LLM tool use while keeping resources intact
-- **💡 Prompts**: Define reusable prompt templates for AI interactions
-- **⚡ Elicitation**: Request user confirmation or input parameters before tool execution
-- **🔄 Auto-generation**: Automatically creates MCP server endpoints based on annotations
-- **⚙️ Flexible Configuration**: Support for custom parameter sets and descriptions
-
-## 🧪 Testing & Inspector
-
-- Run tests: `npm test`
-- Start demo app: `npm run mock`
-- Inspector: `npx @modelcontextprotocol/inspector`
-
-### Bruno collection
-
-The `bruno/` folder contains HTTP requests for the MCP endpoint (handy for local manual testing using Bruno or any HTTP client). You may add calls for `tools/list` and `tools/call` to exercise the new wrapper tools.
-
-## 📝 Usage
-
-### Resource Annotations
-
-Transform CAP entities into AI-queryable resources:
+### Resources (`@mcp.resource`)
 
 ```cds
 service CatalogService {
@@ -143,13 +108,7 @@ service CatalogService {
   @mcp: {
     name       : 'books',
     description: 'Book data list',
-    resource   : [
-      'filter',
-      'orderby',
-      'select',
-      'skip',
-      'top'
-    ]
+    resource   : ['filter', 'orderby', 'select', 'skip', 'top']
   }
   entity Books as projection on my.Books;
 
@@ -161,7 +120,7 @@ service CatalogService {
   }
   entity Authors as projection on my.Authors;
 
-  // Or maybe you just want it as a static top 100 list of data?
+  // Static top-100 list (no query options)
   @mcp: {
     name       : 'genres',
     description: 'Book genre list',
@@ -171,99 +130,24 @@ service CatalogService {
 }
 ```
 
-**Generated MCP Resource Capabilities:**
-- **OData v4 Query Support**: `$filter`, `$orderby`, `$top`, `$skip`, `$select`
-- **Natural Language Queries**: "Find books by Stephen King with stock > 20"
-- **Dynamic Filtering**: Complex filter expressions using OData syntax
-- **Flexible Selection**: Choose specific fields and sort orders
+### Entity wrappers (`@mcp.wrap`)
 
-### Wrapper tools
+When `wrap_entities_to_actions` is enabled globally, or a specific entity is annotated with `@mcp.wrap.tools: true`, each entity is also exposed as a set of tools:
 
-When `wrap_entities_to_actions` is enabled (globally or via `@mcp.wrap.tools: true`), you will see tools named like:
-
-- `CatalogService_Books_query`
-- `CatalogService_Books_get`
-- `CatalogService_Books_create` (if enabled)
-- `CatalogService_Books_update` (if enabled)
-
-Each tool includes a description with fields and OData notes to guide the model. You can add `@mcp.wrap.hint` per entity to enrich descriptions for LLMs.
-
-Example:
+- `<Service>_<Entity>_query`
+- `<Service>_<Entity>_get`
+- `<Service>_<Entity>_create` (if enabled)
+- `<Service>_<Entity>_update` (if enabled)
 
 ```cds
-  // Wrap Books entity as tools for query/get/create/update (demo)
-  annotate CatalogService.Books with @mcp.wrap: {
-    tools: true,
-    modes: [
-      'query',
-      'get',
-      'create',
-      'update'
-    ],
-    hint : 'Use for read and write demo operations'
-  };
+annotate CatalogService.Books with @mcp.wrap: {
+  tools: true,
+  modes: ['query', 'get', 'create', 'update'],
+  hint : 'Use for read and write demo operations'
+};
 ```
 
-For field-level descriptions within these tools, see [Element Hints with @mcp.hint](#element-hints-with-mcphint).
-
-### Omitting Sensitive Fields
-
-Protect sensitive data by excluding specific fields from MCP responses using the `@mcp.omit` annotation:
-
-```cds
-namespace my.bookshop;
-
-entity Books {
-  key ID            : Integer;
-      title         : String;
-      stock         : Integer;
-      author        : Association to Authors;
-      secretMessage : String  @mcp.omit;  // Hidden from all MCP responses
-}
-
-entity Users {
-  key ID             : Integer;
-      username       : String;
-      email          : String;
-      darkestSecret  : String  @mcp.omit;      // Never exposed to MCP clients
-      ssn            : String  @mcp.omit;      // Protected sensitive data
-      lastLogin      : DateTime;
-}
-```
-
-**How It Works:**
-- Fields marked with `@mcp.omit` are automatically filtered from all MCP responses
-- Applies to:
-  - **Resources**: Field will not appear in resource read operations
-  - **Wrapped Entities**: Omission applies to all entity wrapper operations
-
-**Common Use Cases:**
-- **Security**: Hide information sensitive to functionality or business operations
-- **Privacy**: Protect personal identifiers
-- **Internal Data**: Exclude internal notes, audit logs, or system-only fields
-- **Compliance**: Ensure GDPR/CCPA compliance by hiding sensitive personal data
-
-**Important Notes:**
-- Omitted fields are **only excluded from outputs** - they can still be provided as inputs for create/update operations
-- The annotation works alongside the CAP standard annotation `@Core.Computed` for comprehensive field control
-- Omitted fields remain queryable in the CAP service - only MCP responses are filtered
-
-**Example with Multiple Annotations:**
-```cds
-entity Products {
-  key ID          : Integer;
-      name        : String;
-      price       : Decimal;
-      costPrice   : Decimal  @mcp.omit;    // Hide internal pricing
-      createdAt   : DateTime @Core.Computed; // Auto-generated, not writable
-      updatedAt   : DateTime @Core.Computed; // Auto-generated, not writable
-      secretNote  : String   @mcp.omit;    // Hide from MCP
-}
-```
-
-### Tool Annotations
-
-Convert CAP functions and actions into executable AI tools:
+### Tools (`@mcp.tool`)
 
 ```cds
 // Service-level function
@@ -285,161 +169,77 @@ extend projection Books with actions {
 }
 ```
 
-#### Tool Elicitation
-
-Request user confirmation or input before tool execution using the `elicit` property:
+Tools can request user interaction before execution via `elicit`:
 
 ```cds
-// Request user confirmation before execution
 @mcp: {
   name       : 'book-recommendation',
   description: 'Get a random book recommendation',
   tool       : true,
-  elicit     : ['confirm']
+  elicit     : ['confirm']            // yes/no prompt
 }
 function getBookRecommendation() returns String;
 
-// Request user input for parameters
 @mcp: {
   name       : 'get-author',
   description: 'Gets the desired author',
   tool       : true,
-  elicit     : ['input']
+  elicit     : ['input']              // parameter form
 }
 function getAuthor(id: String) returns String;
 
-// Request both input and confirmation
 @mcp: {
   name       : 'books-by-author',
   description: 'Gets a list of books made by the author',
   tool       : true,
-  elicit     : ['input', 'confirm']
+  elicit     : ['input', 'confirm']   // form + confirmation
 }
 function getBooksByAuthor(authorName: String) returns array of String;
 ```
 
-> NOTE: Elicitation is only available for direct tools at this moment. Wrapped entities are not covered by this.
+Elicitation is only available for direct tools; entity-wrapper tools do not support it.
 
-**Elicit Types:**
-- **`confirm`**: Requests user confirmation before executing the tool with a yes/no prompt
-- **`input`**: Prompts the user to provide values for the tool's parameters
-- **Combined**: Use both `['input', 'confirm']` to first collect parameters, then ask for confirmation
+### Field hints (`@mcp.hint`)
 
-**User Experience:**
-- **Confirmation**: "Please confirm that you want to perform action 'Get a random book recommendation'"
-- **Input**: "Please fill out the required parameters" with a form for each parameter
-- **User Actions**: Accept, decline, or cancel the elicitation request
-- **Early Exit**: Tools return appropriate messages if declined or cancelled
+Attach descriptions to entity properties, action parameters, and complex-type fields to improve the schema seen by the LLM:
 
-### Element Hints with @mcp.hint
-
-Provide contextual descriptions for individual properties and parameters using the `@mcp.hint` annotation. These hints help AI agents better understand the purpose, constraints, and expected values for specific fields.
-
-#### Where to Use Hints
-
-**Resource Entity Properties**
 ```cds
 entity Books {
   key ID    : Integer @mcp.hint: 'Must be a unique number not already in the system';
       title : String;
       stock : Integer @mcp.hint: 'The amount of books currently on store shelves';
 }
-```
 
-**Array Elements**
-```cds
-entity Authors {
-  key ID          : Integer;
-      name        : String @mcp.hint: 'Full name of the author';
-      nominations : array of String @mcp.hint: 'Awards that the author has been nominated for';
-}
-```
-
-**Function/Action Parameters**
-```cds
 @mcp: {
-  name       : 'books-by-author',
-  description: 'Gets a list of books made by the author',
-  tool       : true
+  name: 'books-by-author', description: '...', tool: true
 }
 function getBooksByAuthor(
   authorName : String @mcp.hint: 'Full name of the author you want to get the books of'
 ) returns array of String;
 ```
 
-**Complex Type Fields**
+Hints flow into:
+
+- Resource field descriptions
+- Parameter schemas of direct tools and entity wrappers
+- Array element descriptions (applied to items, not the array)
+
+Good hints are specific: state constraints, formats, and business meaning rather than restating the field name.
+
+### Omitting fields (`@mcp.omit`)
+
 ```cds
-type TValidQuantities {
-  positiveOnly : Integer @mcp.hint: 'Only takes in positive numbers, i.e. no negative values such as -1'
-};
-```
-
-#### How Hints Are Used
-
-Hints are automatically incorporated into:
-- **Resource Descriptions**: Field-level guidance in entity wrapper tools (query/get/create/update/delete)
-- **Tool Parameter Schemas**: Enhanced parameter descriptions visible to AI agents
-- **Input Validation**: Context for AI agents when constructing function calls
-
-#### Example: Enhanced Tool Experience
-
-Without `@mcp.hint`:
-```json
-{
-  "tool": "CatalogService_Books_create",
-  "parameters": {
-    "ID": { "type": "integer" },
-    "stock": { "type": "integer" }
-  }
+entity Books {
+  key ID            : Integer;
+      title         : String;
+      stock         : Integer;
+      secretMessage : String  @mcp.omit;   // hidden from MCP output
 }
 ```
 
-With `@mcp.hint`:
-```json
-{
-  "tool": "CatalogService_Books_create",
-  "parameters": {
-    "ID": {
-      "type": "integer",
-      "description": "Must be a unique number not already in the system"
-    },
-    "stock": {
-      "type": "integer",
-      "description": "The amount of books currently on store shelves"
-    }
-  }
-}
-```
+`@mcp.omit` filters MCP output only. Omitted fields can still be supplied as inputs on create / update operations and remain queryable in the underlying CAP service. Combine with `@Core.Computed` to make a field neither output nor writable.
 
-#### Best Practices
-
-1. **Be Specific**: Provide concrete examples and constraints
-   - ❌ Bad: `@mcp.hint: 'Author name'`
-   - ✅ Good: `@mcp.hint: 'Full name of the author (e.g., "Ernest Hemingway")'`
-
-2. **Include Constraints**: Document validation rules and business logic
-   - ✅ `@mcp.hint: 'Must be between 0 and 999, representing quantity in stock'`
-
-3. **Clarify Foreign Keys**: Help AI agents understand associations
-   - ✅ `@mcp.hint: 'Foreign key reference to Authors.ID'`
-
-4. **Explain Business Context**: Add domain-specific information
-   - ✅ `@mcp.hint: 'ISBN-13 format, used for unique book identification'`
-
-5. **Avoid Redundancy**: Don't repeat what's obvious from the field name and type
-   - ❌ Bad: `stock: Integer @mcp.hint: 'Stock value'`
-   - ✅ Good: `stock: Integer @mcp.hint: 'Current inventory count across all warehouses'`
-
-#### Technical Notes
-
-- Hints are parsed at model load time and stored in the `propertyHints` map
-- Hints work with both simple types and complex nested types
-- Hints are accessible in both resource queries and tool executions
-- Array element hints apply to the array items, not the array itself
-
-### Prompt Templates
-
-Define reusable AI prompt templates:
+### Prompt templates (`@mcp.prompts`)
 
 ```cds
 annotate CatalogService with @mcp.prompts: [{
@@ -448,18 +248,11 @@ annotate CatalogService with @mcp.prompts: [{
   description: 'Gives an abstract of a book based on the title',
   template   : 'Search the internet and give me an abstract of the book {{book-id}}',
   role       : 'user',
-  inputs     : [{
-    key : 'book-id',
-    type: 'String'
-  }]
+  inputs     : [{ key: 'book-id', type: 'String' }]
 }];
 ```
 
-## 🔧 Configuration
-
-### Plugin Configuration
-
-Configure the MCP plugin through your CAP application's `package.json` or `.cdsrc` file:
+## Configuration reference
 
 ```json
 {
@@ -468,325 +261,106 @@ Configure the MCP plugin through your CAP application's `package.json` or `.cdsr
       "name": "my-mcp-server",
       "version": "1.0.0",
       "auth": "inherit",
-      "instructions": "mcp server instructions for agents",
+      "instructions": "MCP server instructions for agents",
       "capabilities": {
-        "resources": {
-          "listChanged": true,
-          "subscribe": false
-        },
-        "tools": {
-          "listChanged": true
-        },
-        "prompts": {
-          "listChanged": true
-        }
+        "resources": { "listChanged": true, "subscribe": false },
+        "tools":     { "listChanged": true },
+        "prompts":   { "listChanged": true }
       }
     }
   }
 }
 ```
-
-### Configuration Options
 
 | Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `name` | string | package.json name | MCP server name |
-| `version` | string | package.json version | MCP server version |
+| --- | --- | --- | --- |
+| `name` | string | package.json `name` | MCP server name |
+| `version` | string | package.json `version` | MCP server version |
 | `auth` | `"inherit"` \| `"none"` | `"inherit"` | Authentication mode |
-| `instructions` | string | `null` | MCP server instructions for agents |
-| `public_url` | string | _derived_ | Canonical external base URL advertised in OAuth metadata. Set when running behind an approuter at a different FQDN. |
-| `base_path` | string | `"/mcp"` | Mount path exposed to MCP clients — used as `resource` in `oauth-protected-resource` metadata. |
+| `instructions` | string | `null` | Server-level instructions surfaced to agents |
+| `public_url` | string | derived | Canonical external base URL advertised in OAuth metadata. Set when running behind an approuter on a different FQDN. |
+| `base_path` | string | `"/mcp"` | Mount path exposed to MCP clients; used as `resource` in `oauth-protected-resource` metadata. |
 | `trusted_proxies` | boolean | `false` | Honor `X-Forwarded-Host/Proto/Prefix` when building absolute URLs. Enable when fronted by an approuter. |
-| `oauth.proxy` | `"enabled"` \| `"disabled"` | `"enabled"` | Expose `/oauth/*` and `/.well-known/oauth-authorization-server` on the CAP backend. Set to `"disabled"` when an upstream approuter handles OAuth. |
-| `oauth.protected_resource` | `"enabled"` \| `"disabled"` | `"enabled"` | Register the MCP-spec-required `/.well-known/oauth-protected-resource` metadata endpoint (RFC 9728). |
-| `capabilities.resources.listChanged` | boolean | `true` | Enable resource list change notifications |
-| `capabilities.resources.subscribe` | boolean | `false` | Enable resource subscriptions |
-| `capabilities.tools.listChanged` | boolean | `true` | Enable tool list change notifications |
-| `capabilities.prompts.listChanged` | boolean | `true` | Enable prompt list change notifications |
+| `oauth.proxy` | `"enabled"` \| `"disabled"` | `"enabled"` | Expose `/oauth/*` and `/.well-known/oauth-authorization-server` on the CAP backend. Disable when an upstream approuter handles OAuth. |
+| `oauth.protected_resource` | `"enabled"` \| `"disabled"` | `"enabled"` | Register the RFC 9728 `/.well-known/oauth-protected-resource` metadata endpoint. |
+| `capabilities.resources.listChanged` | boolean | `true` | Resource list-change notifications |
+| `capabilities.resources.subscribe` | boolean | `false` | Resource subscriptions |
+| `capabilities.tools.listChanged` | boolean | `true` | Tool list-change notifications |
+| `capabilities.prompts.listChanged` | boolean | `true` | Prompt list-change notifications |
 
-> **Running behind a SAP Application Router?** See
-> [docs/approuter-integration.md](./docs/approuter-integration.md) for
-> the full deployment recipe — including managed approuter route
-> declarations, XSUAA + IAS coexistence, and multi-tenancy notes.
+## Authentication
 
-### Authentication Configuration
+### `inherit` (default)
 
-The plugin supports two authentication modes:
-
-#### `"inherit"` Mode (Default)
-Uses your CAP application's existing authentication system:
+Uses CAP's configured authentication — any of `mocked`, `basic`, `jwt`, `xsuaa`, or `ias`:
 
 ```json
 {
   "cds": {
-    "mcp": {
-      "auth": "inherit"
-    },
-    "requires": {
-      "auth": {
-        "kind": "xsuaa"
-      }
-    }
+    "mcp":      { "auth": "inherit" },
+    "requires": { "auth": { "kind": "xsuaa" } }
   }
 }
 ```
 
-#### `"none"` Mode (Development/Testing)
-Disables authentication completely:
+Flow for OAuth-backed deployments (XSUAA, IAS):
+
+1. Client connects to `/mcp` without a token.
+2. Backend returns `401` with `WWW-Authenticate: Bearer resource_metadata=…`.
+3. Client fetches `/.well-known/oauth-protected-resource`, then the advertised `oauth-authorization-server` metadata.
+4. Client performs the OAuth authorization-code flow (DCR, authorize, token exchange). For IAS the plugin emulates DCR using the pre-bound `clientid` since IAS does not implement RFC 7591.
+5. Client re-issues the MCP request with `Authorization: Bearer <token>`.
+
+### `none`
+
+Disables authentication. Use only in development:
 
 ```json
-{
-  "cds": {
-    "mcp": {
-      "auth": "none"
-    }
-  }
-}
+{ "cds": { "mcp": { "auth": "none" } } }
 ```
 
-**⚠️ Security Warning**: Only use `"none"` mode in development environments. Never deploy to production without proper authentication.
+### Behind an approuter
 
-#### Authentication Flow
-1. MCP client connects to `/mcp` endpoint
-2. If the authentication style used is OAuth, the OAuth flow will be executed
-3. CAP authentication middleware validates credentials (if `auth: "inherit"`)
-4. MCP session established with authenticated user context
-5. All MCP operations (resources, tools, prompts) inherit the authenticated user's permissions
+See [docs/approuter-integration.md](./docs/approuter-integration.md) for the full deployment recipe, including managed approuter route declarations, XSUAA + IAS coexistence, and multi-tenancy notes. The approuter-side architecture is covered in [docs/approuter-architecture.md](./docs/approuter-architecture.md).
 
-### Automatic Features
+## Development and testing
 
-The plugin automatically:
-- Scans your CAP service definitions for `@mcp` annotations
-- Generates appropriate MCP resources, tools, and prompts
-- Creates ResourceTemplates with proper OData v4 query parameter support
-- Sets up HTTP endpoints at `/mcp` and `/mcp/health`
-- Manages MCP session lifecycle and cleanup
+- `npm test` — full Jest suite.
+- `npm run test:unit` / `npm run test:integration` — scoped runs.
+- `npm run test:coverage` — coverage report.
+- `npm run mock` — start the demo CAP app in `test/demo/`.
+- `npm run inspect` — launch the official [MCP Inspector](https://github.com/modelcontextprotocol/inspector) and connect it to `http://localhost:4004/mcp`.
 
-## 🌟 Example AI Interactions
+The `bruno/` directory contains a [Bruno](https://www.usebruno.com/) collection with HTTP requests for the MCP endpoint for manual exploration.
 
-Once configured, AI agents can interact with your CAP data naturally; Let's take an example from the standard CAP Bookshop:
+Enable verbose logs:
 
-- **"Show me the top 5 books with highest stock"** → Queries Books resource with `$orderby=stock desc&$top=5`
-- **"Find authors whose names contain 'Smith'"** → Uses `$filter=contains(name,'Smith')` on Authors resource
-- **"Get the current stock for book ID 123"** → Calls the `get-stock` tool for the specified book
-- **"Give me a book recommendation"** → Executes the `book-recommendation` tool
-
-While this shows how this example CDS annotation works, the possibilities are endless and only you and your data sets the boundaries.
-
-## 📋 Business Case Example: Workflow Approval Management
-
-### The Setup
-Your CAP service includes a workflow management system with MCP integration:
-
-```cds
-service WorkflowService {
-
-  @mcp: {
-    name       : 'get-my-pending-approval',
-    description: 'Fetches workflows awaiting approval by the specified user',
-    tool       : true
-  }
-  function getPendingApproval(userId: String) returns array of Workflows;
-}
-```
-
-### The Interaction Flow
-
-**1. User Query**
-```
-User: "Hey <Agent>, do I have any workflows pending approval?"
-```
-
-**2. AI Agent Processing**
-- Agent recognizes this as a request for pending approval information
-- Identifies the `get-my-pending-approval` tool as the appropriate method
-- Determines the user's ID from context (session, authentication, etc.)
-
-**3. MCP Tool Execution**
-```javascript
-// Agent calls the MCP tool
-{
-  "tool": "get-my-pending-approval",
-  "arguments": {
-    "userId": "john.doe@company.com"
-  }
-}
-```
-
-**4. CAP Service Processing**
-- Your CAP service receives the tool call
-- Executes `getPendingApproval("john.doe@company.com")`
-- Queries your workflow database/system
-- Returns structured workflow data
-
-**5. AI Response**
-```
-Agent: "You have 3 workflows pending your approval:
-
-• **Purchase Order #PO-2024-001**
-  Submitted by: Sarah Johnson
-  Amount: $12,500
-  Submitted: 2 days ago
-
-• **Budget Request - Marketing Q2**
-  Submitted by: Mike Chen
-  Amount: $45,000
-  Submitted: 1 day ago
-
-• **New Employee Onboarding - Jane Smith**
-  Submitted by: HR Department
-  Start Date: Next Monday
-  Submitted: 4 hours ago
-
-Would you like me to help you review any of these in detail?"
-```
-
-### Business Value
-- **Instant Access**: No need to log into workflow systems or navigate complex UIs
-- **Contextual Intelligence**: AI can prioritize based on urgency, amounts, or business rules
-- **Natural Interaction**: Users can ask follow-up questions in plain language
-- **Integration Ready**: Works with existing CAP-based workflow systems
-- **Mobile Friendly**: Access approvals from any MCP-compatible AI client
-
-## 🧰 Development & Testing
-
-### Testing Your MCP Implementation
-
-If you want to test the MCP implementation you have made on your CAP application locally, you have 2 options available (that does not involve direct integration with AI Agent).
-
-#### Option #1 - MCP Inspector
-
-You can inspect the MCP implementation by utilizing the official `@modelcontextprotocol/inspector`.
-
-This inspector can be started up through either the included `npm run inspect` command, or by running `npx @modelcontextprotocol/inspector`.
-
-For plugin implementation implementation in your own project it is recommended to add the above command to your own script collection.
-
-For more information on the inspector, please [see the official documentation](https://github.com/modelcontextprotocol/inspector).
-
-#### Option #2 - Bruno Collection
-
-This repository comes with a Bruno collection available that includes some example queries you can use to verify your MCP implementation. These can be found in the `bruno` directory.
-
-#### Option #3 - Automated Testing
-
-Run the comprehensive test suite to validate your implementation:
-
-```bash
-# Test specific components
-npm test -- --testPathPattern=annotations  # Test annotation parsing
-npm test -- --testPathPattern=mcp          # Test MCP functionality
-npm test -- --testPathPattern=security     # Test security boundaries
-npm test -- --testPathPattern=auth         # Test authentication
-
-# Run with detailed output
-npm test -- --verbose
-
-# Run in watch mode for development
-npm test -- --watch
-```
-
-### Further reading
-
-- Short guide on entity tools and configuration: `docs/entity-tools.md`
-
-## 🤝 Contributing
-
-Contributions are welcome! This is an open-source project aimed at bridging CAP applications with the AI ecosystem.
-
-- **Issues**: Report bugs and request features
-- **Pull Requests**: Submit improvements and fixes
-- **Documentation**: Help improve examples and guides
-- **Testing**: Share your use cases and edge cases
-
-## 📄 License
-
-This project is licensed under the Apache-2.0 License - see the [LICENSE.md](LICENSE.md) file for details.
-
-## 🔧 Troubleshooting
-
-### Common Issues
-
-#### MCP Server Not Starting
-- **Check Port Availability**: Ensure port 4004 is not in use by another process
-- **Verify CAP Service**: Make sure your CAP application starts successfully with `cds serve`
-- **Authentication Issues**: If using `auth: "inherit"`, ensure your CAP authentication is properly configured
-
-#### MCP Client Connection Failures
-```bash
-# Check if MCP endpoint is accessible
-curl http://localhost:4004/mcp/health
-
-# Expected response:
-# {"status": "healthy", "timestamp": "2025-01-XX..."}
-```
-
-#### Annotation Not Working
-- **Syntax Check**: Verify your `@mcp` annotation syntax matches the examples
-- **Service Deployment**: Ensure annotated entities/functions are properly deployed
-- **Case Sensitivity**: Check that annotation properties use correct casing (`resource`, `tool`, `prompts`)
-
-#### OData Query Issues
-- **SDK Bug Workaround**: Due to the known `@modelcontextprotocol/sdk` bug, provide all query parameters when using dynamic queries
-- **Parameter Validation**: Ensure query parameters match OData v4 syntax
-
-#### Performance Issues
-- **Resource Filtering**: Use specific `resource` arrays instead of `true` for large datasets
-- **Query Optimization**: Implement proper database indexes for frequently queried fields
-
-### Debugging
-
-#### Enable Debug Logging
 ```json
-{
-  "cds": {
-    "log": {
-      "levels": {
-        "mcp": "debug"
-      }
-    }
-  }
-}
+{ "cds": { "log": { "levels": { "mcp": "debug" } } } }
 ```
 
-#### Test MCP Implementation
-```bash
-# Use MCP Inspector for interactive testing
-npm run inspect
+Further reading: [docs/entity-tools.md](./docs/entity-tools.md).
 
-# Or run integration tests
-npm test -- --testPathPattern=integration
-```
+## Troubleshooting
 
-### Getting Help
+| Symptom | Likely cause |
+| --- | --- |
+| `cds serve` starts but `/mcp` 404s | Port conflict on 4004, or the plugin was not picked up — confirm `cap-mcp-plugin` is in `dependencies`. |
+| `401` on every MCP call with `auth: "inherit"` | Upstream CAP auth is misconfigured or missing credentials. Check `cds.requires.auth`. |
+| MCP client rejects auth server as "does not support dynamic client registration" (IAS) | `oauth.proxy` is `"disabled"` — the client is being pointed straight at IAS, which does not support DCR. Set `oauth.proxy: "enabled"` so the plugin emulates DCR. |
+| Annotations ignored | Verify spelling and casing (`resource`, `tool`, `prompts`) and that the annotated service is loaded. |
+| Dynamic query parameters must all be supplied | Known `@modelcontextprotocol/sdk` RFC template-string limitation; provide every declared parameter. |
 
-- **GitHub Issues**: Report bugs at [gavdilabs/cap-mcp-plugin](https://github.com/gavdilabs/cap-mcp-plugin/issues)
-- **Documentation**: Check [MCP Specification](https://modelcontextprotocol.io) for protocol details
-- **CAP Support**: Refer to [SAP CAP Documentation](https://cap.cloud.sap) for CAP-specific issues
+## Limitations
 
-## 🚨 Performance & Limitations
+- Dynamic resource queries must supply all declared query parameters (SDK limitation).
+- Elicitation is supported for direct tools only, not entity wrappers.
+- Each MCP client opens its own session; monitor memory when running many concurrent clients.
 
-### Known Limitations
-- **SDK Bug**: Dynamic resource queries require all query parameters due to `@modelcontextprotocol/sdk` RFC template string issue
+## Contributing
 
-### Performance Considerations
-- **Large Datasets**: Use `resource: ['top']` or similar constraints for entities with many records
-- **Complex Queries**: OData query parsing adds overhead - consider caching for frequently accessed data
-- **Concurrent Sessions**: Each MCP client creates a separate session - monitor memory usage with many clients
+Issues and pull requests are welcome at [sleibach/cap-mcp-plugin](https://github.com/sleibach/cap-mcp-plugin).
 
-### Scale Recommendations
-- **Development**: No specific limits
-- **Production**: Test with expected concurrent MCP client count
-- **Enterprise**: Consider load balancing for high-availability scenarios
+## License
 
-## 🔗 Resources
-
-- [Model Context Protocol Specification](https://modelcontextprotocol.io)
-- [SAP CAP Documentation](https://cap.cloud.sap)
-- [OData v4 Specification](https://odata.org)
-- [MCP Inspector Tool](https://github.com/modelcontextprotocol/inspector)
-
----
-(c) Copyright by Gavdi Labs 2025 - All Rights Reserved
-
-**Transform your CAP applications into AI-ready systems with the power of the Model Context Protocol.**
+Apache-2.0. See [LICENSE.md](./LICENSE.md).

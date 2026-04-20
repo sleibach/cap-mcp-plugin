@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Build an MTA archive that bundles the local @gavdi/cap-mcp source.
+# Build an MTA archive that bundles the local cap-mcp-plugin source.
 #
 # Why this script exists: package.json points at the plugin via
-#   "@gavdi/cap-mcp": "file:../.."
+#   "cap-mcp-plugin": "file:../.."
 # which works for local `cds watch` but the path is not valid inside
 # the MTA build context (gen/srv gets packaged in isolation). This
 # script packs the plugin, drops the tarball into the sample, and
@@ -15,7 +15,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../.." && pwd)"
 
-echo "==> pack @gavdi/cap-mcp from $PLUGIN_ROOT"
+echo "==> pack cap-mcp-plugin from $PLUGIN_ROOT"
 cd "$PLUGIN_ROOT"
 TGZ=$(npm pack --silent | tail -1)
 mv "$TGZ" "$HERE/$TGZ"
@@ -31,7 +31,7 @@ node -e "
   const fs = require('fs');
   const path = './gen/srv/package.json';
   const pkg = JSON.parse(fs.readFileSync(path));
-  pkg.dependencies['@gavdi/cap-mcp'] = 'file:./$TGZ';
+  pkg.dependencies['cap-mcp-plugin'] = 'file:./$TGZ';
   fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n');
 "
 

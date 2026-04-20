@@ -1,7 +1,7 @@
 # bookshop-xsuaa — MCP sample behind an approuter, with XSUAA
 
 Scaffolded via `cds init bookshop-xsuaa --add nodejs,sample,xsuaa,hana,mta,approuter`.
-Wired up to the sibling `@gavdi/cap-mcp` plugin with the approuter topology
+Wired up to the sibling `cap-mcp-plugin` package with the approuter topology
 described in [`../../docs/approuter-integration.md`](../../docs/approuter-integration.md).
 
 ## Layout
@@ -27,7 +27,7 @@ user goes through). The plugin registers resources for `Books`,
 
 ## Deploy to Cloud Foundry
 
-The dependency `"@gavdi/cap-mcp": "file:../.."` cannot be installed from inside
+The dependency `"cap-mcp-plugin": "file:../.."` cannot be installed from inside
 the MTA archive, so use the helper script to pack the plugin and bundle it:
 
 ```sh

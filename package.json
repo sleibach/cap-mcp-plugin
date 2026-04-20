@@ -1,7 +1,7 @@
 {
-  "name": "@gavdi/cap-mcp",
+  "name": "cap-mcp-plugin",
   "version": "1.3.0",
-  "description": "MCP Plugin for CAP",
+  "description": "MCP Plugin for SAP CAP (Model Context Protocol server from CDS models)",
   "keywords": [
     "MCP",
     "CAP",
@@ -9,7 +9,7 @@
     "SAP"
   ],
   "license": "Apache-2.0",
-  "author": "Simon Vestergaard Laursen",
+  "author": "Soeren Leibach",
   "type": "commonjs",
   "main": "cds-plugin.js",
   "files": [
@@ -19,7 +19,14 @@
     "index.cds",
     "LICENSE.md"
   ],
-  "repository": "github:gavdilabs/cap-mcp-plugin",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sleibach/cap-mcp-plugin.git"
+  },
+  "bugs": {
+    "url": "https://github.com/sleibach/cap-mcp-plugin/issues"
+  },
+  "homepage": "https://github.com/sleibach/cap-mcp-plugin#readme",
   "scripts": {
     "mock": "npm run start --workspace=test/demo",
     "mock:watch": "npm run build && npm run watch --workspace=test/demo",
