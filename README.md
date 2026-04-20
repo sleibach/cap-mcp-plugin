@@ -34,11 +34,15 @@ For protocol details, see the [MCP specification](https://modelcontextprotocol.i
 
 ## Install
 
+There is **no npm registry package yet**. Install straight from GitHub:
+
 ```bash
-npm install cap-mcp-plugin
+npm install github:sleibach/cap-mcp-plugin
 ```
 
-The plugin follows CAP's standard plugin architecture and is picked up automatically.
+(Optionally pin a branch or tag: `github:sleibach/cap-mcp-plugin#main` or `#v1.3.0` once you publish tags.)
+
+The plugin follows CAP’s standard plugin architecture and is picked up automatically once it is listed in your app’s `dependencies`.
 
 ## Configure
 
