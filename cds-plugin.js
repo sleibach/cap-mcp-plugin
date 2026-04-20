@@ -12,6 +12,13 @@ cds.on("bootstrap", async (app) => {
   await plugin?.onBootstrap(app);
 });
 
+// `loaded` fires for each CSN fragment BEFORE the model is compiled. We use
+// it to inject the session-store entity in db mode so `cds deploy` creates
+// the backing table as part of the hosting app's normal deploy flow.
+cds.on("loaded", (model) => {
+  plugin?.onModelLoaded(model);
+});
+
 cds.on("serving", async () => {
   await plugin?.onLoaded(cds.model);
 });

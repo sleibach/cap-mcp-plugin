@@ -287,10 +287,48 @@ annotate CatalogService with @mcp.prompts: [{
 | `trusted_proxies` | boolean | `false` | Honor `X-Forwarded-Host/Proto/Prefix` when building absolute URLs. Enable when fronted by an approuter. |
 | `oauth.proxy` | `"enabled"` \| `"disabled"` | `"enabled"` | Expose `/oauth/*` and `/.well-known/oauth-authorization-server` on the CAP backend. Disable when an upstream approuter handles OAuth. |
 | `oauth.protected_resource` | `"enabled"` \| `"disabled"` | `"enabled"` | Register the RFC 9728 `/.well-known/oauth-protected-resource` metadata endpoint. |
+| `session_store.kind` | `"db"` \| `"memory"` | `"db"` when a DB binding exists, else `"memory"` | Where MCP session state lives. `"db"` is required for multi-instance deployments behind a round-robin load balancer. Set to `"memory"` to opt out of DB persistence even when a DB binding is present. See [Session store](#session-store). |
+| `session_store.entity` | string | `"cap.mcp.Sessions"` | CSN entity injected programmatically for `"db"` kind. Override only on name clashes. |
+| `session_store.local_cache_ttl_ms` | number | `600000` | How long a rehydrated transport is kept in the per-instance cache before it is dropped and re-fetched from the DB on the next request. |
 | `capabilities.resources.listChanged` | boolean | `true` | Resource list-change notifications |
 | `capabilities.resources.subscribe` | boolean | `false` | Resource subscriptions |
 | `capabilities.tools.listChanged` | boolean | `true` | Tool list-change notifications |
 | `capabilities.prompts.listChanged` | boolean | `true` | Prompt list-change notifications |
+
+## Session store
+
+MCP is session-oriented: the client sends `initialize`, receives an `Mcp-Session-Id`, then sends every subsequent request with that header. Deployments with multiple app instances behind a round-robin load balancer need the session to be visible from every instance (`initialize` lands on instance A, a later `tools/call` lands on instance B → otherwise `Invalid session ID`).
+
+The plugin persists sessions in a CAP entity by default. When a DB binding is configured, `session_store.kind` resolves to `"db"` automatically — no extra flag needed. The injected `cap.mcp.Sessions` entity is created by your app's normal `cds deploy`.
+
+Requirements for the DB-backed store:
+
+- A database binding (`cds.env.requires.db`) — sqlite, HANA, Postgres, etc.
+- `cds deploy` (or your app's deploy step) is run so the injected `cap.mcp.Sessions` table is created. The entity is added programmatically on `cds.on('loaded')`; no `.cds` file changes needed.
+- `MCP_ENABLE_JSON=true` (the default). DB-backed sessions rely on JSON-response mode because SSE streams cannot be handed off between instances.
+
+Behavior:
+
+- A fresh `initialize` inserts a row with the generated session ID.
+- Subsequent requests routed to an instance that hasn't seen the session rehydrate a transport locally (cheap; transport state is purely in-memory) and update `last_access` in the DB.
+- A global reaper on every instance deletes rows older than `CDS_MCP_SESSION_TTL_MS` (default 30 minutes).
+- `DELETE /mcp` removes the row so no instance can rehydrate a torn-down session.
+
+### Opting out: in-memory store
+
+Set `session_store.kind = "memory"` to keep sessions in a per-process Map. This is appropriate for single-instance deployments, local development, or any topology with sticky routing. When no DB binding exists and the kind is unspecified, the plugin falls back to `"memory"` automatically.
+
+```json
+{
+  "cds": {
+    "mcp": {
+      "session_store": { "kind": "memory" }
+    }
+  }
+}
+```
+
+Explicit `kind: "db"` without a DB binding is a configuration error and the plugin fails fast at startup.
 
 ## Authentication
 
