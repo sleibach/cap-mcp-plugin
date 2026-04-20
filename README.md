@@ -287,7 +287,7 @@ annotate CatalogService with @mcp.prompts: [{
 | `trusted_proxies` | boolean | `false` | Honor `X-Forwarded-Host/Proto/Prefix` when building absolute URLs. Enable when fronted by an approuter. |
 | `oauth.proxy` | `"enabled"` \| `"disabled"` | `"enabled"` | Expose `/oauth/*` and `/.well-known/oauth-authorization-server` on the CAP backend. Disable when an upstream approuter handles OAuth. |
 | `oauth.protected_resource` | `"enabled"` \| `"disabled"` | `"enabled"` | Register the RFC 9728 `/.well-known/oauth-protected-resource` metadata endpoint. |
-| `session_store.kind` | `"db"` \| `"memory"` | `"db"` when a DB binding exists, else `"memory"` | Where MCP session state lives. `"db"` is required for multi-instance deployments behind a round-robin load balancer. Set to `"memory"` to opt out of DB persistence even when a DB binding is present. See [Session store](#session-store). |
+| `session_store.kind` | `"db"` \| `"memory"` \| `"stateless"` | `"db"` when a DB binding exists, else `"memory"` | Where MCP session state lives. `"db"` persists session IDs in a CAP entity; `"stateless"` issues no session IDs and handles every POST with a fresh transport (multi-instance safe, zero persistence); `"memory"` uses a per-process Map. See [Session store](#session-store). |
 | `session_store.entity` | string | `"cap.mcp.Sessions"` | CSN entity injected programmatically for `"db"` kind. Override only on name clashes. |
 | `session_store.local_cache_ttl_ms` | number | `600000` | How long a rehydrated transport is kept in the per-instance cache before it is dropped and re-fetched from the DB on the next request. |
 | `capabilities.resources.listChanged` | boolean | `true` | Resource list-change notifications |
@@ -314,6 +314,26 @@ Behavior:
 - A global reaper on every instance deletes rows older than `CDS_MCP_SESSION_TTL_MS` (default 30 minutes).
 - `DELETE /mcp` removes the row so no instance can rehydrate a torn-down session.
 
+### Stateless mode (no DB, multi-instance safe)
+
+When your MCP tools are pure CRUD/RPC and you don't need server-initiated notifications (`notifications/tools/list_changed`, subscriptions, progress updates, etc.), set `session_store.kind = "stateless"`. The plugin then:
+
+- Configures the SDK transport with `sessionIdGenerator: undefined` — no `Mcp-Session-Id` is issued or expected.
+- Builds a fresh server+transport per POST, handles the request, and discards both.
+- Returns 400 on `GET /mcp` (SSE streams) and `DELETE /mcp` (nothing to close).
+
+This matches the "tool-server without subscriptions" pattern: requests are independent, horizontal scaling is trivial, blue/green deployments and restarts carry no session risk. Stateless needs no DB binding, so it's a good choice when you run multiple instances without wanting to take on a DB dependency.
+
+```json
+{
+  "cds": {
+    "mcp": {
+      "session_store": { "kind": "stateless" }
+    }
+  }
+}
+```
+
 ### Opting out: in-memory store
 
 Set `session_store.kind = "memory"` to keep sessions in a per-process Map. This is appropriate for single-instance deployments, local development, or any topology with sticky routing. When no DB binding exists and the kind is unspecified, the plugin falls back to `"memory"` automatically.
@@ -328,7 +348,7 @@ Set `session_store.kind = "memory"` to keep sessions in a per-process Map. This 
 }
 ```
 
-Explicit `kind: "db"` without a DB binding is a configuration error and the plugin fails fast at startup.
+Explicit `kind: "db"` without a DB binding is a configuration error and the plugin fails fast at startup. The same applies to `kind: "stateless"` with `MCP_ENABLE_JSON=false`, because SSE is incompatible with per-request transports.
 
 ## Authentication
 
