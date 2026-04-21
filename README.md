@@ -138,10 +138,8 @@ service CatalogService {
 
 When `wrap_entities_to_actions` is enabled globally, or a specific entity is annotated with `@mcp.wrap.tools: true`, each entity is also exposed as a set of tools:
 
-- `<Service>_<Entity>_query`
-- `<Service>_<Entity>_get`
-- `<Service>_<Entity>_create` (if enabled)
-- `<Service>_<Entity>_update` (if enabled)
+- If the entity has `@mcp.name` on its resource block, wrapper tools use **`{name}_query`**, **`{name}_get`**, etc. (keeps IDs short—many MCP clients limit **tool `name` to 64 characters**; long service + entity names alone can exceed that).
+- Otherwise the legacy pattern: `<Service>_<Entity>_query`, `<Service>_<Entity>_get`, …
 
 ```cds
 annotate CatalogService.Books with @mcp.wrap: {

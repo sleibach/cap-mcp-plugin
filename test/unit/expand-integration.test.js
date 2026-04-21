@@ -108,8 +108,9 @@ describe("$expand integration against a real CAP runtime", () => {
       canRead: true, canCreate: false, canUpdate: false, canDelete: false,
     });
 
-    queryHandler = capturedTools.get("CatalogService_PartnerProfiles_query");
-    getHandler = capturedTools.get("CatalogService_PartnerProfiles_get");
+    // When @mcp.name is set, wrapper tools use `{name}_{mode}` (short names for 64-char client limits).
+    queryHandler = capturedTools.get("partner-profiles_query");
+    getHandler = capturedTools.get("partner-profiles_get");
     expect(queryHandler).toBeDefined();
     expect(getHandler).toBeDefined();
 
