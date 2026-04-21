@@ -149,6 +149,47 @@ annotate CatalogService.Books with @mcp.wrap: {
 };
 ```
 
+Available modes:
+
+- `query` — list/search rows (supports `top`, `skip`, `select`, `where`, `orderby`, `q`, `expand`, `return`, `aggregate`, `explain`).
+- `get` — read a single row by key(s).
+- `create` — insert a new active row.
+- `update` — patch an active row by key(s).
+- `delete` — remove a row by key(s).
+- `draft-new` — create a pending draft (registers automatically on `@odata.draft.enabled` / `@fiori.draft.enabled` roots).
+- `draft-edit` — start editing an existing active row (creates a draft copy).
+- `draft-patch` — apply field changes to an existing draft.
+- `draft-activate` — publish the pending draft to the active row.
+- `draft-discard` — drop the pending draft without touching the active row.
+
+### Draft lifecycle
+
+For draft-enabled roots (annotated with `@odata.draft.enabled` or `@fiori.draft.enabled`), the wrapper:
+
+- **Auto-registers** the five `draft-*` tools listed above alongside the CRUD tools — no need to list them explicitly in `@mcp.wrap.modes`.
+- **Short-circuits active-row `update` and `delete`** with a `DRAFT_REQUIRED` error that names the relevant `draft-edit` / `draft-patch` / `draft-activate` / `draft-discard` tools. This replaces the opaque CAP runtime error that surfaces when a caller tries to bypass the draft pipeline.
+- **Extends `get` and `query`** with an optional `IsActiveEntity` parameter:
+  - `get` defaults to `true` (reads the active row). Pass `false` to read the draft sibling.
+  - `query` returns both active and draft rows when omitted; pass `true` or `false` to narrow the result.
+- **Surfaces draft admin fields** (`HasActiveEntity`, `HasDraftEntity`, `DraftAdministrativeData`) on read responses so the LLM can reason about locks and pending edits.
+
+Typical round-trip:
+
+```jsonc
+// 1. Create a draft
+tools/call { "name": "books_draft-new", "arguments": { "ID": 42, "title": "Draft Title" } }
+// 2. Patch fields on the draft
+tools/call { "name": "books_draft-patch", "arguments": { "ID": 42, "stock": 5 } }
+// 3. Publish to the active row
+tools/call { "name": "books_draft-activate", "arguments": { "ID": 42 } }
+
+// Edit an existing active row:
+tools/call { "name": "books_draft-edit", "arguments": { "ID": 42 } }
+// ... then draft-patch + draft-activate, or draft-discard to throw away.
+```
+
+See the [CAP Fiori draft handling docs](https://cap.cloud.sap/docs/advanced/fiori#draft-support) for concept background.
+
 ### Tools (`@mcp.tool`)
 
 ```cds
