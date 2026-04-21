@@ -243,6 +243,49 @@ entity Books {
 
 `@mcp.omit` filters MCP output only. Omitted fields can still be supplied as inputs on create / update operations and remain queryable in the underlying CAP service. Combine with `@Core.Computed` to make a field neither output nor writable.
 
+### Expand & deep reads (`@mcp.expand`)
+
+Query and get tools accept an OData v4 `$expand` parameter with subquery options (`$select`, `$filter`, `$top`, `$skip`, `$orderby`, nested `$expand`). Without an explicit `expand`, every Composition on the entity is included automatically, so the LLM sees "parts of me" in one call instead of a scalar-plus-FK skeleton.
+
+```jsonc
+// tools/call arguments for <Service>_<Entity>_query and _get
+{
+  "expand": "address,identifiers($top=5;$filter=scheme eq 'GLN')"
+}
+```
+
+- Pass `""` (empty string) to opt out at call time — the response drops back to scalars + foreign keys only.
+- Pass a full OData `$expand` string to override what is returned. The parser is schema-aware: it rejects unknown navigation properties and `$select` columns that don't exist on the target.
+- Only **Compositions** are auto-included. **Associations** stay opt-in — they frequently lead to very large graphs and shouldn't be pulled implicitly.
+
+Per-entity override with `@mcp.expand` (accepted values: `'compositions'`, `'none'`, `'all'`):
+
+```cds
+// Large entity that you do NOT want auto-expanded
+annotate AdminService.Orders with @mcp.expand: 'none';
+
+// Entity where you want associations included too
+annotate AdminService.PartnerProfiles with @mcp.expand: 'all';
+```
+
+Runtime-wide configuration (also settable via `CDS_MCP_EXPAND_MAX_DEPTH` / `CDS_MCP_EXPAND_MAX_BREADTH` env vars):
+
+```json
+{
+  "cds": {
+    "mcp": {
+      "expand": {
+        "default": "compositions",
+        "max_depth": 3,
+        "max_breadth": 20
+      }
+    }
+  }
+}
+```
+
+`max_depth` caps how deeply nested `$expand` can go (e.g. `nav($expand=child($expand=grandchild))` is depth 3). `max_breadth` caps how many sibling nav props may appear at any one level. Both are validated during parse, so an over-broad request fails before any SQL is generated.
+
 ### Prompt templates (`@mcp.prompts`)
 
 ```cds
