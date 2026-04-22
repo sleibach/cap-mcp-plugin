@@ -37,6 +37,10 @@ entity Tasks : cuid {
 entity Notes : cuid {
   text : String;
 }
+
+entity Projects : cuid {
+  name : String;
+}
 `);
 
 fs.writeFileSync(path.join(FIXTURE, "srv/cat.cds"), `
@@ -45,6 +49,7 @@ using {demo} from '../db/schema';
 service CatalogService {
   entity Tasks as projection on demo.Tasks;
   entity Notes as projection on demo.Notes;
+  entity Projects as projection on demo.Projects;
 }
 
 annotate CatalogService.Tasks with @odata.draft.enabled;
@@ -71,6 +76,21 @@ annotate CatalogService.Notes with @mcp: {
 
 annotate CatalogService.Notes with @mcp.wrap: {
   tools: true
+};
+
+// Projects exercises the explicit-modes path: the user lists CRUD modes
+// without draft-* — draft tools must still auto-register.
+annotate CatalogService.Projects with @odata.draft.enabled;
+
+annotate CatalogService.Projects with @mcp: {
+  name       : 'projects',
+  description: 'Draft-enabled projects with explicit modes',
+  resource   : true
+};
+
+annotate CatalogService.Projects with @mcp.wrap: {
+  tools: true,
+  modes: ['query', 'get', 'create', 'update']
 };
 `);
 
@@ -117,6 +137,16 @@ describe("Draft lifecycle integration against a real CAP runtime", () => {
     expect(notesAnno).toBeDefined();
     registerEntityWrappers(
       notesAnno,
+      server,
+      false,
+      ["query", "get", "create", "update", "delete"],
+      { canRead: true, canCreate: true, canUpdate: true, canDelete: true },
+    );
+
+    const projectsAnno = annotations.get("CatalogService.Projects");
+    expect(projectsAnno).toBeDefined();
+    registerEntityWrappers(
+      projectsAnno,
       server,
       false,
       ["query", "get", "create", "update", "delete"],
@@ -262,6 +292,26 @@ describe("Draft lifecycle integration against a real CAP runtime", () => {
     for (const row of rows) {
       expect(row.IsActiveEntity).toBe(false);
     }
+  });
+
+  test("explicit @mcp.wrap.modes without draft-* still auto-registers draft tools on a draft-enabled root", () => {
+    const registered = Array.from(capturedTools.keys());
+    // Caller declared modes: ['query', 'get', 'create', 'update'] — no draft-*,
+    // no 'delete'. The CRUD tools they asked for must be present, AND the
+    // draft-* tools must auto-register so the DRAFT_REQUIRED short-circuit
+    // points at real tools. 'delete' stays absent (they opted out).
+    expect(registered).toEqual(expect.arrayContaining([
+      "projects_query",
+      "projects_get",
+      "projects_create",
+      "projects_update",
+      "projects_draft-new",
+      "projects_draft-edit",
+      "projects_draft-patch",
+      "projects_draft-activate",
+      "projects_draft-discard",
+    ]));
+    expect(registered).not.toContain("projects_delete");
   });
 
   test("@odata.draft.bypass allows direct active-row update/delete", async () => {
