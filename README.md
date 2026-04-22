@@ -256,7 +256,7 @@ authenticated principal. When a second caller (different bearer token or mocked 
 releases them immediately. MCP clients sharing the same bearer token share the principal, so
 draft-new → draft-patch in the same session is always the same user.
 
-Enable `DEBUG=mcp.draft cds watch` to get a one-line trace per draft operation
+Enable `DEBUG=mcp cds watch` to get a one-line trace per draft operation
 (`[draft-<op>] entity=<x> keys=<y> user=<z>`) for on-call diagnostics.
 
 **Diagnosing `DRAFT_LOCKED` when the holder isn't you:**
@@ -270,9 +270,10 @@ Enable `DEBUG=mcp.draft cds watch` to get a one-line trace per draft operation
    MCP is running as `anonymous`, `system`, or a different SSO account than
    the Fiori UI.
 3. For continuous tracing during a repro, run the server with
-   `DEBUG=mcp.auth cds watch`. Every tool invocation writes one line:
-   `[draft-<op>] caller id='…' privileged=… anonymous=… tenant='…' roles=[…]`.
-   Combine with `mcp.draft` for full draft-path visibility.
+   `DEBUG=mcp cds watch`. Every tool invocation writes one line:
+   `[draft-<op>] caller id='…' privileged=… anonymous=… tenant='…' roles=[…]`,
+   plus the per-operation `[draft-<op>] entity=… keys=… user=…` trace for
+   full draft-path visibility.
 
 #### Error-code reference
 
