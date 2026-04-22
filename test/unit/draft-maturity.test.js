@@ -171,8 +171,48 @@ describe("Draft lifecycle — enterprise-grade hardening", () => {
       "orders_draft-patch",
       "orders_draft-activate",
       "orders_draft-discard",
+      "orders_draft-upsert",
     ]));
     expect(registered).not.toContain("orders_delete");
+  });
+
+  test("draft-upsert: NEW+SAVE in one tx — no cross-call lock, immediate active row", async () => {
+    const ID = "aaaaaaaa-0001-4000-8000-000000000010";
+    const activated = await call("orders_draft-upsert", {
+      ID,
+      title: "Upsert one-shot",
+      priority: "high",
+      customer_Customer: "C100",
+      customer_Region: "DE",
+      address_street: "Main 2",
+      address_city: "Dortmund",
+    }, "alice");
+    if (activated.isError) console.error("draft-upsert failed:", activated.content[0].text);
+    expect(activated.isError).toBeFalsy();
+    const row = payload(activated);
+    expect(row.IsActiveEntity).toBe(true);
+    expect(row.customer_Customer).toBe("C100");
+    expect(row.customer_Region).toBe("DE");
+  });
+
+  test("draft-upsert: @mandatory missing → DRAFT_UPSERT_FAILED, no orphan draft left behind", async () => {
+    const ID = "aaaaaaaa-0001-4000-8000-000000000011";
+    const res = await call("orders_draft-upsert", {
+      ID,
+      title: "Upsert missing priority",
+    }, "alice");
+    expect(res.isError).toBe(true);
+    const err = payload(res);
+    expect(err.error).toBe("DRAFT_UPSERT_FAILED");
+    expect(err.message.toLowerCase()).toMatch(/priority/);
+    // Rollback check: no draft row should linger under this key.
+    const check = await call("orders_get", { ID, IsActiveEntity: false }, "alice");
+    // get may return "not found" or an empty array depending on the path —
+    // either way the row must NOT exist as a pending draft.
+    if (!check.isError) {
+      const body = payload(check);
+      expect(body).toBeFalsy();
+    }
   });
 
   test("composite-FK happy path: both FK columns supplied → draft-activate succeeds", async () => {

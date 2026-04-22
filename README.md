@@ -161,6 +161,7 @@ Available modes:
 - `draft-patch` — apply field changes to an existing draft.
 - `draft-activate` — publish the pending draft to the active row.
 - `draft-discard` — drop the pending draft without touching the active row.
+- `draft-upsert` — one-shot: creates a draft and immediately activates it in a single transaction (use when all required fields are known up front).
 
 ### Draft lifecycle
 
@@ -187,7 +188,32 @@ tools/call { "name": "books_draft-activate", "arguments": { "ID": 42 } }
 // Edit an existing active row:
 tools/call { "name": "books_draft-edit", "arguments": { "ID": 42 } }
 // ... then draft-patch + draft-activate, or draft-discard to throw away.
+
+// One-shot create + activate (single transaction, single principal):
+tools/call { "name": "books_draft-upsert", "arguments": { "ID": 43, "title": "Atomic Insert", "stock": 7 } }
 ```
+
+#### `draft-upsert`: one-shot for stateless MCP callers
+
+Each MCP tool call is a standalone HTTP request. If the authenticated principal drifts
+between the request that opened the draft (`draft-new`) and the request that publishes it
+(`draft-activate`) — for example because the MCP bearer token resolves to a different
+`cds.context.user.id` than the one that held the lock — the second call fails with
+`DRAFT_LOCKED`, even though the caller is the same human.
+
+`draft-upsert` sidesteps this entirely: the NEW and SAVE events run on the **same
+`svc.tx({user}, …)` callback**, so the `InProcessByUser` written by NEW is guaranteed to
+match the principal at SAVE time. If SAVE fails (e.g. an un-filled `@mandatory` field),
+the transaction rolls back and no orphan draft is left behind.
+
+Use it when:
+- The LLM already has all required fields up front (no iterative `draft-patch` needed).
+- You want a single atomic unit of work in the audit log.
+- You're running behind stateless MCP plumbing and want to rule out cross-call principal drift.
+
+Use the discrete `draft-new` / `draft-patch` / `draft-activate` trio when the caller
+legitimately needs to inspect the pending draft between turns, or when `draft-edit` on an
+existing active row is the entry point.
 
 #### Composite-key associations
 
@@ -242,6 +268,7 @@ Enable `DEBUG=mcp.draft cds watch` to get a one-line trace per draft operation
 | `DRAFT_ALREADY_EXISTS`   | `draft-new` on a row that already has a draft sibling                | Use `draft-edit` / `draft-patch` on the existing draft.                   |
 | `DRAFT_VALIDATION_FAILED`| `@assert.*` violation during `draft-new` / `draft-patch`             | Correct the field values and retry.                                       |
 | `DRAFT_ACTIVATE_FAILED`  | `@mandatory` / `@assert.*` violation during `draft-activate`         | `draft-patch` the missing / invalid field, then activate again.           |
+| `DRAFT_UPSERT_FAILED`    | NEW or SAVE failed inside `draft-upsert` (transaction rolled back)   | Fix the offending field named in the message and retry `draft-upsert`.    |
 | `ASSERT_DATA_TYPE`       | Payload shape mismatches CSN (e.g. missing composite-FK column)      | Check every generated FK column and structured element is supplied.       |
 
 See the [CAP Fiori draft handling docs](https://cap.cloud.sap/docs/advanced/fiori#draft-support) for concept background.
