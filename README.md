@@ -167,8 +167,8 @@ Available modes:
 For draft-enabled roots (annotated with `@odata.draft.enabled` or `@fiori.draft.enabled`), the wrapper:
 
 - **Auto-registers** the five `draft-*` tools listed above alongside the CRUD tools — no need to list them explicitly in `@mcp.wrap.modes`.
-- **Short-circuits active-row `update` and `delete`** with a `DRAFT_REQUIRED` error that names the relevant `draft-edit` / `draft-patch` / `draft-activate` / `draft-discard` tools. This replaces the opaque CAP runtime error that surfaces when a caller tries to bypass the draft pipeline.
-  - **Exception:** entities annotated with `@odata.draft.bypass` (or the whole service with `cds.env.fiori.bypass_draft: true`) continue to accept direct active-row `update`/`delete`, matching CAP's own bypass semantics. The `draft-*` tools remain available for callers that prefer the lifecycle.
+- **Short-circuits active-row `create`, `update`, and `delete`** with a `DRAFT_REQUIRED` error that names the relevant `draft-new` / `draft-edit` / `draft-patch` / `draft-activate` / `draft-discard` tools. This replaces the opaque CAP runtime error that surfaces when a caller tries to bypass the draft pipeline, and — crucially — it sidesteps synchronous `@assert.target` FK validation on `create`. The Fiori draft runtime defers those checks until activation, so an FK pointing at a remote / S/4 value-help source that can't be resolved synchronously still lets the draft land.
+  - **Exception:** entities annotated with `@odata.draft.bypass` (or the whole service with `cds.env.fiori.bypass_draft: true`) continue to accept direct active-row `create`/`update`/`delete`, matching CAP's own bypass semantics. The `draft-*` tools remain available for callers that prefer the lifecycle.
 - **Extends `get` and `query`** with an optional `IsActiveEntity` parameter:
   - `get` defaults to `true` (reads the active row). Pass `false` to read the draft sibling.
   - `query` returns both active and draft rows when omitted; pass `true` or `false` to narrow the result.

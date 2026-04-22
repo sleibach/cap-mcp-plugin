@@ -171,6 +171,15 @@ describe("Draft lifecycle integration against a real CAP runtime", () => {
     expect(body.message).toMatch(/draft-discard/);
   });
 
+  test("active-row create on a draft root returns DRAFT_REQUIRED", async () => {
+    const res = await call("create", { ID: "11111111-1111-4111-1111-111111111199", title: "nope" });
+    expect(res.isError).toBe(true);
+    const body = payload(res);
+    expect(body.error).toBe("DRAFT_REQUIRED");
+    expect(body.message).toMatch(/draft-new/);
+    expect(body.message).toMatch(/draft-activate/);
+  });
+
   test("draft-new → draft-patch → draft-activate round-trip", async () => {
     const draftId = "22222222-2222-4222-2222-222222222201";
 
