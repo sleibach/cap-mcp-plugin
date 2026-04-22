@@ -33,6 +33,10 @@ entity Tasks : cuid {
   title  : String;
   status : String;
 }
+
+entity Notes : cuid {
+  text : String;
+}
 `);
 
 fs.writeFileSync(path.join(FIXTURE, "srv/cat.cds"), `
@@ -40,6 +44,7 @@ using {demo} from '../db/schema';
 
 service CatalogService {
   entity Tasks as projection on demo.Tasks;
+  entity Notes as projection on demo.Notes;
 }
 
 annotate CatalogService.Tasks with @odata.draft.enabled;
@@ -51,6 +56,20 @@ annotate CatalogService.Tasks with @mcp: {
 };
 
 annotate CatalogService.Tasks with @mcp.wrap: {
+  tools: true
+};
+
+// Notes opts into draft lifecycle but also allows direct active mutations.
+annotate CatalogService.Notes with @odata.draft.enabled;
+annotate CatalogService.Notes with @odata.draft.bypass;
+
+annotate CatalogService.Notes with @mcp: {
+  name       : 'notes',
+  description: 'Draft-enabled notes with bypass',
+  resource   : true
+};
+
+annotate CatalogService.Notes with @mcp.wrap: {
   tools: true
 };
 `);
@@ -93,10 +112,25 @@ describe("Draft lifecycle integration against a real CAP runtime", () => {
       ["query", "get", "create", "update", "delete"],
       { canRead: true, canCreate: true, canUpdate: true, canDelete: true },
     );
+
+    const notesAnno = annotations.get("CatalogService.Notes");
+    expect(notesAnno).toBeDefined();
+    registerEntityWrappers(
+      notesAnno,
+      server,
+      false,
+      ["query", "get", "create", "update", "delete"],
+      { canRead: true, canCreate: true, canUpdate: true, canDelete: true },
+    );
   });
 
   const call = (suffix, args) => {
     const name = `tasks_${suffix}`;
+    const handler = capturedTools.get(name);
+    if (!handler) throw new Error(`tool not registered: ${name}`);
+    return handler(args ?? {});
+  };
+  const callTool = (name, args) => {
     const handler = capturedTools.get(name);
     if (!handler) throw new Error(`tool not registered: ${name}`);
     return handler(args ?? {});
@@ -219,5 +253,22 @@ describe("Draft lifecycle integration against a real CAP runtime", () => {
     for (const row of rows) {
       expect(row.IsActiveEntity).toBe(false);
     }
+  });
+
+  test("@odata.draft.bypass allows direct active-row update/delete", async () => {
+    const id = "33333333-3333-4333-3333-333333333301";
+    // Seed an active Notes row. The bypass annotation lets us create directly
+    // through the active entity — no draftEdit/Activate round-trip required.
+    const created = await callTool("notes_create", { ID: id, text: "initial" });
+    expect(created.isError).toBeFalsy();
+
+    // Active-row update must NOT return DRAFT_REQUIRED because of bypass.
+    const updateRes = await callTool("notes_update", { ID: id, text: "updated" });
+    expect(updateRes.isError).toBeFalsy();
+    const updatedRow = JSON.parse(updateRes.content[0].text);
+    expect(updatedRow.text).toBe("updated");
+
+    const deleteRes = await callTool("notes_delete", { ID: id });
+    expect(deleteRes.isError).toBeFalsy();
   });
 });
