@@ -46,6 +46,11 @@ entity Orders : cuid {
     street : String;
     city   : String;
   };
+  // Temporal fields — exercise the wire-format coercion: callers may pass
+  // ISO datetime strings, epoch numbers, or Date instances.
+  dueDate     : Date;
+  sentAt      : DateTime;
+  recordedAt  : Timestamp;
 }
 `);
 
@@ -268,6 +273,32 @@ describe("Draft lifecycle — enterprise-grade hardening", () => {
     const draft = payload(created);
     expect(draft.address_street).toBe("Königsallee 11");
     expect(draft.address_city).toBe("Düsseldorf");
+    await call("orders_draft-discard", { ID }, "alice");
+  });
+
+  test("Date field accepts ISO datetime string and normalises to YYYY-MM-DD", async () => {
+    const ID = "aaaaaaaa-0001-4000-8000-000000000007";
+    // This is the EAM-class failure: agent passes "2026-05-31T00:00:00Z"
+    // (a DateTime-ish ISO string) for a Date-typed field. Previously we
+    // fed CAP a Date object which it rejected with ASSERT_DATA_TYPE; now
+    // we normalise to "YYYY-MM-DD" before handing off to the draft pipeline.
+    const created = await call("orders_draft-new", {
+      ID,
+      title: "Temporal draft",
+      priority: "high",
+      dueDate: "2026-05-31T00:00:00Z",
+      sentAt: "2026-05-31T12:34:56Z",
+      recordedAt: 1_748_649_296_000,
+    }, "alice");
+    if (created.isError) console.error("temporal draft-new failed:", created.content[0].text);
+    expect(created.isError).toBeFalsy();
+    const draft = payload(created);
+    expect(draft.dueDate).toBe("2026-05-31");
+    // CAP may round-trip DateTime / Timestamp as ISO strings — sanity-check
+    // the shape rather than exact formatting.
+    expect(typeof draft.sentAt).toBe("string");
+    expect(draft.sentAt).toMatch(/^2026-05-31T/);
+    expect(typeof draft.recordedAt).toBe("string");
     await call("orders_draft-discard", { ID }, "alice");
   });
 
