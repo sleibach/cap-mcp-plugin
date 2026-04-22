@@ -17,7 +17,7 @@ For protocol details, see the [MCP specification](https://modelcontextprotocol.i
 ## Features
 
 - Expose CDS entities as MCP resources with OData v4 query support (`$filter`, `$orderby`, `$top`, `$skip`, `$select`).
-- Expose CDS functions and actions as MCP tools.
+- Expose CDS functions and actions as MCP tools — both unbound (service-level) and bound (entity-level).
 - Wrap entities as CRUD-style tools (`query`, `get`, optional `create` / `update`) for LLM tool-use.
 - Declare reusable prompt templates.
 - Request user confirmation or parameter input before tool execution (elicitation).
@@ -193,8 +193,10 @@ See the [CAP Fiori draft handling docs](https://cap.cloud.sap/docs/advanced/fior
 
 ### Tools (`@mcp.tool`)
 
+CDS operations annotated with `@mcp.tool: true` become MCP tools. Both **unbound** (service-level) and **bound** (entity-level) operations are supported, and the distinction between `action` and `function` is preserved — either kind can be exposed. Parameter schemas are derived automatically from the CDS signature; input/output types (scalars, structured types, `array of ...`) flow through unchanged, and `@mcp.hint` on parameters enriches the schema shown to the LLM.
+
 ```cds
-// Service-level function
+// Service-level (unbound) function
 @mcp: {
   name       : 'get-author',
   description: 'Gets the desired author',
@@ -202,7 +204,15 @@ See the [CAP Fiori draft handling docs](https://cap.cloud.sap/docs/advanced/fior
 }
 function getAuthor(input: String) returns String;
 
-// Entity-level action
+// Service-level (unbound) action with a structured return type
+@mcp: {
+  name       : 'submit-order',
+  description: 'Submits a new order',
+  tool       : true
+}
+action submitOrder(cart: ManyCartItems) returns Order;
+
+// Entity-level (bound) function — invoked against a specific Books row
 extend projection Books with actions {
   @mcp: {
     name       : 'get-stock',
@@ -210,8 +220,18 @@ extend projection Books with actions {
     tool       : true
   }
   function getStock() returns Integer;
+
+  // Entity-level (bound) action
+  @mcp: {
+    name       : 'reorder',
+    description: 'Triggers a reorder for the given book',
+    tool       : true
+  }
+  action reorder(quantity: Integer) returns Boolean;
 }
 ```
+
+Bound operations automatically receive the entity's key(s) as additional tool parameters so the caller can target a specific row. The plugin picks them up regardless of whether the parent entity itself carries `@mcp` annotations — a bound tool on an un-annotated entity is still registered.
 
 Tools can request user interaction before execution via `elicit`:
 
