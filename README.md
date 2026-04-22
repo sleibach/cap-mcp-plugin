@@ -259,6 +259,21 @@ draft-new → draft-patch in the same session is always the same user.
 Enable `DEBUG=mcp.draft cds watch` to get a one-line trace per draft operation
 (`[draft-<op>] entity=<x> keys=<y> user=<z>`) for on-call diagnostics.
 
+**Diagnosing `DRAFT_LOCKED` when the holder isn't you:**
+
+1. The error message already names both identities: `(held by <holder>) (you are '<caller>')`.
+   If those two ids differ, you know immediately that CAP's lock check is
+   working correctly — the human you expected isn't the principal CAP resolved.
+2. Call `cap_whoami` (always registered, no annotation needed) for a full
+   principal snapshot: id, roles, tenant, `is_privileged`, `is_anonymous`, and
+   a plain-English diagnosis line. This is the fastest way to confirm whether
+   MCP is running as `anonymous`, `system`, or a different SSO account than
+   the Fiori UI.
+3. For continuous tracing during a repro, run the server with
+   `DEBUG=mcp.auth cds watch`. Every tool invocation writes one line:
+   `[draft-<op>] caller id='…' privileged=… anonymous=… tenant='…' roles=[…]`.
+   Combine with `mcp.draft` for full draft-path visibility.
+
 #### Error-code reference
 
 | Code                     | When it's raised                                                     | Next step                                                                 |

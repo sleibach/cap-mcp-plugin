@@ -280,6 +280,11 @@ describe("Draft lifecycle — enterprise-grade hardening", () => {
     expect(patched.isError).toBe(true);
     const err = payload(patched);
     expect(err.error).toBe("DRAFT_LOCKED");
+    // Message must identify BOTH the holder and the current principal so the
+    // on-call can tell which identity the plugin is actually running as.
+    expect(err.message).toMatch(/held by alice/);
+    expect(err.message).toMatch(/you are 'bob'/);
+    expect(err.message).toMatch(/Root cause: the lock holder and the current MCP principal are different identities/);
     // Alice must clean up so other tests don't inherit her lock.
     await call("orders_draft-discard", { ID }, "alice");
   });
