@@ -189,6 +189,61 @@ tools/call { "name": "books_draft-edit", "arguments": { "ID": 42 } }
 // ... then draft-patch + draft-activate, or draft-discard to throw away.
 ```
 
+#### Composite-key associations
+
+Associations with more than one target key (e.g. `technicalObject : Association to TechnicalObject`
+where `TechnicalObject` is keyed on `(TechnicalObject, ObjectType)`) are surfaced as **one flat
+parameter per generated FK column** on `create`, `update`, `draft-new`, and `draft-patch`. The
+naming follows CAP's on-disk convention, `{propName}_{targetKey}`:
+
+```jsonc
+tools/call {
+  "name": "change-requests_draft-new",
+  "arguments": {
+    "ID": "…",
+    "title": "…",
+    "technicalObject_TechnicalObject": "7500008",
+    "technicalObject_ObjectType": "E"
+  }
+}
+```
+
+Single-key associations degenerate to the familiar `{propName}_ID` form. Supplying only a
+subset of the FK columns produces `ASSERT_DATA_TYPE` — the error now includes a hint pointing
+at the missing FK columns.
+
+#### `@mandatory` and activation-time validation
+
+`@mandatory` and `@assert.*` constraints on draft-enabled roots are **deferred to activation**:
+`draft-new` / `draft-patch` accept partial payloads, and the validation pipeline runs when
+`draft-activate` calls `SAVE`. A violation returns `DRAFT_ACTIVATE_FAILED` with the offending
+field name in the message; the draft row survives so the caller can `draft-patch` the fix and
+re-activate.
+
+#### Locking semantics
+
+CAP stores the draft holder in `DraftAdministrativeData.InProcessByUser`, scoped to the
+authenticated principal. When a second caller (different bearer token or mocked user) tries to
+`draft-patch` / `draft-activate` a draft that another user owns, the plugin returns
+`DRAFT_LOCKED` with the holder's id in the message. Locks expire after
+`cds.env.drafts.cancellationTimeout` minutes (default: 15); `draft-discard` by the holder
+releases them immediately. MCP clients sharing the same bearer token share the principal, so
+draft-new → draft-patch in the same session is always the same user.
+
+Enable `DEBUG=mcp.draft cds watch` to get a one-line trace per draft operation
+(`[draft-<op>] entity=<x> keys=<y> user=<z>`) for on-call diagnostics.
+
+#### Error-code reference
+
+| Code                     | When it's raised                                                     | Next step                                                                 |
+|--------------------------|----------------------------------------------------------------------|---------------------------------------------------------------------------|
+| `DRAFT_REQUIRED`         | Active-row `create`/`update`/`delete` on a non-bypass draft root     | Switch to the `draft-*` tool named in the error message.                  |
+| `DRAFT_LOCKED`           | Another user currently holds the draft                               | Retry as that user, wait for the lock to expire, or coordinate discard.   |
+| `DRAFT_ALREADY_EXISTS`   | `draft-new` on a row that already has a draft sibling                | Use `draft-edit` / `draft-patch` on the existing draft.                   |
+| `DRAFT_VALIDATION_FAILED`| `@assert.*` violation during `draft-new` / `draft-patch`             | Correct the field values and retry.                                       |
+| `DRAFT_ACTIVATE_FAILED`  | `@mandatory` / `@assert.*` violation during `draft-activate`         | `draft-patch` the missing / invalid field, then activate again.           |
+| `ASSERT_DATA_TYPE`       | Payload shape mismatches CSN (e.g. missing composite-FK column)      | Check every generated FK column and structured element is supplied.       |
+
 See the [CAP Fiori draft handling docs](https://cap.cloud.sap/docs/advanced/fiori#draft-support) for concept background.
 
 ### Tools (`@mcp.tool`)
