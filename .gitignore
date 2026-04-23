@@ -14,3 +14,4 @@ test/bookshop-xsuaa/cap-mcp.tgz
 test/bookshop-xsuaa/mta_archives/
 test/bookshop-xsuaa/.bookshop-xsuaa_mta_build_tmp/
 test/bookshop-xsuaa/Makefile_*.mta
+claude_desktop_config.json

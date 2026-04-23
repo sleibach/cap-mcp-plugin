@@ -284,7 +284,10 @@ describe("Draft lifecycle — enterprise-grade hardening", () => {
     // on-call can tell which identity the plugin is actually running as.
     expect(err.message).toMatch(/held by alice/);
     expect(err.message).toMatch(/you are 'bob'/);
-    expect(err.message).toMatch(/Root cause: the lock holder and the current MCP principal are different identities/);
+    // Root-cause hint must name the orphan-draft scenario — that is the
+    // shape every DRAFT_LOCKED we now surface takes, since resolveCallerDraft
+    // short-circuits before CAP's unscoped lookup gets a chance to fire.
+    expect(err.message).toMatch(/Root cause: a foreign draft from another user shares this business key/);
     // Alice must clean up so other tests don't inherit her lock.
     await call("orders_draft-discard", { ID }, "alice");
   });
@@ -345,6 +348,234 @@ describe("Draft lifecycle — enterprise-grade hardening", () => {
     expect(draft.sentAt).toMatch(/^2026-05-31T/);
     expect(typeof draft.recordedAt).toBe("string");
     await call("orders_draft-discard", { ID }, "alice");
+  });
+
+  test("stale foreign draft at same business key — plugin surfaces DRAFT_LOCKED without mutating the wrong row", async () => {
+    // Faithful reproduction of the production symptom: a second DraftAdministrativeData
+    // row for the same business key (here: 3-week-old, owned by alice) exists alongside
+    // bob's fresh draft. Fiori's OData read path scopes draft lookups by
+    // DraftAdministrativeData.InProcessByUser (lean-draft.js:1468); the PATCH path
+    // (lean-draft.js:1091) does NOT — it does `SELECT.one.from(draftsRef)` with just
+    // the caller's WHERE (business keys + IsActiveEntity=false). When two rows match,
+    // it picks non-deterministically and the lock check at :1100 fires against the
+    // stranger's row. The plugin's draft-patch WHERE is equally non-scoped, so any
+    // orphaned draft row in production silently blocks the real user.
+    const { INSERT, SELECT } = cds.ql;
+    const ID = "aaaaaaaa-0001-4000-8000-000000000099";
+    const STALE_DRAFT_UUID = "11111111-1111-1111-1111-111111111111";
+    const THREE_WEEKS_AGO = new Date(Date.now() - 21 * 24 * 60 * 60 * 1000);
+
+    // Seed alice's "3-week-old abandoned" draft via privileged SQL — bypasses
+    // lean-draft's NEW handler, which would otherwise raise DRAFT_ALREADY_EXISTS.
+    // Simulates the corrupted-but-real DB state in the EAM production trace.
+    await cds.tx({ user: cds.User.privileged }, async (tx) => {
+      await tx.run(
+        INSERT.into("DRAFT.DraftAdministrativeData").entries({
+          DraftUUID: STALE_DRAFT_UUID,
+          CreationDateTime: THREE_WEEKS_AGO,
+          CreatedByUser: "alice",
+          LastChangeDateTime: THREE_WEEKS_AGO,
+          LastChangedByUser: "alice",
+          DraftIsCreatedByMe: false,
+          InProcessByUser: "alice",
+          DraftIsProcessedByMe: false,
+        }),
+      );
+      await tx.run(
+        INSERT.into("CatalogService.Orders.drafts").entries({
+          ID,
+          title: "Alice's abandoned 3-week-old draft",
+          priority: "high",
+          HasActiveEntity: false,
+          HasDraftEntity: false,
+          IsActiveEntity: false,
+          DraftAdministrativeData_DraftUUID: STALE_DRAFT_UUID,
+        }),
+      );
+    });
+
+    // Sanity: the seed actually landed.
+    const seeded = await cds.tx({ user: cds.User.privileged }, (tx) =>
+      tx.run(SELECT.from("CatalogService.Orders.drafts").where({ ID })),
+    );
+    expect(seeded.length).toBe(1);
+    expect(seeded[0].DraftAdministrativeData_DraftUUID).toBe(STALE_DRAFT_UUID);
+
+    // Bob tries to draft-new the same business key. If lean-draft rejects with
+    // DRAFT_ALREADY_EXISTS, it never gets to create a second row — meaning our
+    // repro in this shape requires us to seed BOTH drafts directly. Capture it.
+    const bobCreated = await call(
+      "orders_draft-new",
+      { ID, title: "Bob's fresh draft", priority: "low" },
+      "bob",
+    );
+    const bobCreatedBody = bobCreated.isError
+      ? JSON.parse(bobCreated.content[0].text)
+      : null;
+    // Document current behavior: either CAP rejects (one-draft-per-key) or it
+    // accepts (per-user drafts allowed). Both paths exist across CAP versions.
+    console.log("[REPRO] bob draft-new:", bobCreated.isError ? bobCreatedBody : "accepted");
+
+    if (bobCreated.isError && bobCreatedBody?.error?.includes("ALREADY_EXISTS")) {
+      // CAP is strict: only one draft per business key, globally. To reproduce
+      // the collision we must seed bob's draft directly too.
+      const BOB_DRAFT_UUID = "22222222-2222-2222-2222-222222222222";
+      await cds.tx({ user: cds.User.privileged }, async (tx) => {
+        // Remove alice's so we can insert bob's (PK would otherwise collide on business key).
+        await tx.run(DELETE.from("CatalogService.Orders.drafts").where({ ID }));
+        await tx.run(
+          INSERT.into("DRAFT.DraftAdministrativeData").entries({
+            DraftUUID: BOB_DRAFT_UUID,
+            CreationDateTime: new Date(),
+            CreatedByUser: "bob",
+            LastChangeDateTime: new Date(),
+            LastChangedByUser: "bob",
+            DraftIsCreatedByMe: false,
+            InProcessByUser: "bob",
+            DraftIsProcessedByMe: false,
+          }),
+        );
+        await tx.run(
+          INSERT.into("CatalogService.Orders.drafts").entries({
+            ID,
+            title: "Bob's fresh draft",
+            priority: "low",
+            HasActiveEntity: false,
+            HasDraftEntity: false,
+            IsActiveEntity: false,
+            DraftAdministrativeData_DraftUUID: BOB_DRAFT_UUID,
+          }),
+        );
+        // Re-insert alice's stale draft alongside bob's — SQLite will store both rows.
+        await tx.run(
+          INSERT.into("CatalogService.Orders.drafts").entries({
+            ID,
+            title: "Alice's abandoned 3-week-old draft",
+            priority: "high",
+            HasActiveEntity: false,
+            HasDraftEntity: false,
+            IsActiveEntity: false,
+            DraftAdministrativeData_DraftUUID: STALE_DRAFT_UUID,
+          }),
+        );
+      });
+    }
+
+    // Inspect the final seeded state so the test output is diagnostic.
+    const allDrafts = await cds.tx({ user: cds.User.privileged }, (tx) =>
+      tx.run(
+        SELECT.from("CatalogService.Orders.drafts")
+          .columns("ID", "title", "DraftAdministrativeData_DraftUUID")
+          .where({ ID }),
+      ),
+    );
+    console.log("[REPRO] draft rows for business key:", allDrafts);
+
+    // With the fix in place, the plugin pre-resolves the caller's own draft
+    // via a user-scoped `DraftAdministrativeData.InProcessByUser = <caller>`
+    // filter. Since bob has no draft at this key (only alice's orphan), the
+    // plugin must NOT silently retarget to alice's row. It must short-circuit
+    // with DRAFT_LOCKED, naming alice as the foreign holder.
+    const bobPatch = await call(
+      "orders_draft-patch",
+      { ID, title: "Bob patching his own draft" },
+      "bob",
+    );
+    expect(bobPatch.isError).toBe(true);
+    const err = JSON.parse(bobPatch.content[0].text);
+    expect(err.error).toBe("DRAFT_LOCKED");
+    expect(err.message).toMatch(/held by alice/);
+    expect(err.message).toMatch(/you are 'bob'/);
+
+    // Sanity: alice's orphan must be untouched — no data hijacking.
+    const alicesDraftAfter = await cds.tx({ user: cds.User.privileged }, (tx) =>
+      tx.run(
+        SELECT.from("CatalogService.Orders.drafts")
+          .columns("title")
+          .where({ DraftAdministrativeData_DraftUUID: STALE_DRAFT_UUID }),
+      ),
+    );
+    expect(alicesDraftAfter[0].title).toBe("Alice's abandoned 3-week-old draft");
+  });
+
+  test("stale foreign draft + caller's own draft → caller patches their own, foreign row untouched", async () => {
+    // Complement to the previous test: when the caller DOES have their own
+    // draft at the same business key (alongside a foreign orphan), the plugin
+    // must resolve to the caller's DraftUUID and patch that row specifically.
+    // Exercises the `ownDraftUUID` resolution path end-to-end.
+    const { INSERT, SELECT } = cds.ql;
+    const ID = "aaaaaaaa-0001-4000-8000-0000000000ab";
+    const ALICE_UUID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+    const BOB_UUID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+    const LONG_AGO = new Date(Date.now() - 21 * 24 * 60 * 60 * 1000);
+
+    // Seed both drafts. SQLite's unique constraint is on (ID) for this schema,
+    // so we only keep one row in CatalogService.Orders.drafts and attach it
+    // to the caller (bob). The foreign DraftAdministrativeData row still
+    // exists — it's the orphan that would previously have been matched.
+    await cds.tx({ user: cds.User.privileged }, async (tx) => {
+      // Alice's orphan DraftAdministrativeData (no corresponding .drafts row — the
+      // real-world bug shape where the .drafts row was deleted but the admin
+      // data survived schema maintenance).
+      await tx.run(
+        INSERT.into("DRAFT.DraftAdministrativeData").entries({
+          DraftUUID: ALICE_UUID,
+          CreationDateTime: LONG_AGO,
+          CreatedByUser: "alice",
+          LastChangeDateTime: LONG_AGO,
+          LastChangedByUser: "alice",
+          DraftIsCreatedByMe: false,
+          InProcessByUser: "alice",
+          DraftIsProcessedByMe: false,
+        }),
+      );
+      // Bob's real draft.
+      await tx.run(
+        INSERT.into("DRAFT.DraftAdministrativeData").entries({
+          DraftUUID: BOB_UUID,
+          CreationDateTime: new Date(),
+          CreatedByUser: "bob",
+          LastChangeDateTime: new Date(),
+          LastChangedByUser: "bob",
+          DraftIsCreatedByMe: false,
+          InProcessByUser: "bob",
+          DraftIsProcessedByMe: false,
+        }),
+      );
+      await tx.run(
+        INSERT.into("CatalogService.Orders.drafts").entries({
+          ID,
+          title: "Bob's fresh draft",
+          priority: "low",
+          HasActiveEntity: false,
+          HasDraftEntity: false,
+          IsActiveEntity: false,
+          DraftAdministrativeData_DraftUUID: BOB_UUID,
+        }),
+      );
+    });
+
+    const bobPatch = await call(
+      "orders_draft-patch",
+      { ID, title: "Bob patched his own" },
+      "bob",
+    );
+    if (bobPatch.isError) console.error("bob patch failed:", bobPatch.content[0].text);
+    expect(bobPatch.isError).toBeFalsy();
+    expect(payload(bobPatch).title).toBe("Bob patched his own");
+
+    // Alice's orphan admin record must be untouched.
+    const aliceAdmin = await cds.tx({ user: cds.User.privileged }, (tx) =>
+      tx.run(
+        SELECT.from("DRAFT.DraftAdministrativeData")
+          .columns("InProcessByUser", "CreatedByUser")
+          .where({ DraftUUID: ALICE_UUID }),
+      ),
+    );
+    expect(aliceAdmin[0].InProcessByUser).toBe("alice");
+    expect(aliceAdmin[0].CreatedByUser).toBe("alice");
+
+    await call("orders_draft-discard", { ID }, "bob");
   });
 
   test("active-row create on draft root short-circuits with DRAFT_REQUIRED", async () => {
