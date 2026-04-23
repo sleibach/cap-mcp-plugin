@@ -97,3 +97,36 @@ annotate AdminService.Genres with @mcp.wrap: {
     delete: 'Delete a genre by UUID. Fails if still referenced by books or children'
   }
 };
+
+// ---------------------------------------------------------------------------
+// Orders — parent-child schema (Composition of many OrderItems).
+// Draft-enabled on the projection. Tests deep insert of a nested
+// composition via the parent draft flow, which is the real-world
+// Fiori-elements pattern every CAP project with sub-tables hits.
+// ---------------------------------------------------------------------------
+annotate AdminService.Orders with @mcp: {
+  name       : 'admin-orders',
+  description: 'Customer orders with nested line items (draft-enabled)',
+  resource   : ['filter', 'orderby', 'select', 'top', 'skip']
+};
+
+annotate AdminService.Orders with @mcp.wrap: {
+  tools: true,
+  modes: ['query', 'get', 'create', 'update', 'delete'],
+  hint : {
+    query              : 'List orders — filter by status, customerName, orderNo or total',
+    get                : 'Fetch a single order by its UUID, including the nested items composition',
+    ![draft-new]       : 'Create a new order draft. orderNo + customerName mandatory; pass items=[{book_ID, quantity, price}] for deep insert of line items',
+    ![draft-edit]      : 'Edit an existing active order by ID. Returns a mutable draft copy; subsequent patches and the final draft-activate land on the active row',
+    ![draft-patch]     : 'Patch the order draft — update header fields or line items. For nested composition edits supply items with their IDs; items you omit are preserved',
+    ![draft-activate]  : 'Publish the order draft. Fails if mandatory fields (orderNo, customerName) or nested items are incomplete',
+    ![draft-discard]   : 'Discard the order draft. Leaves the active row (if any) untouched'
+  }
+};
+
+annotate AdminService.Orders with {
+  status   @mcp.hint: 'Order status enum: open | submitted | fulfilled | cancelled. Default is open';
+  currency @mcp.hint: 'ISO currency code for the total — use currency_code in writes';
+  total    @mcp.hint: 'Gross total in the order currency. Decimal(11,2); typically derived from item amounts';
+  items    @mcp.hint: 'Composition of OrderItems — deep-insertable on draft-new. Each item: {book_ID, quantity, price, amount?}';
+};

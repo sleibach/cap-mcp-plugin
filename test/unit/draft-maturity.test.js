@@ -51,6 +51,16 @@ entity Orders : cuid {
   dueDate     : Date;
   sentAt      : DateTime;
   recordedAt  : Timestamp;
+  // Parent-child composition — exercises deep insert of child UUIDs via
+  // draft-new. Every real CAP app with sub-tables hits this pattern.
+  items       : Composition of many OrderItems on items.parent = $self;
+}
+
+entity OrderItems : cuid {
+  parent   : Association to Orders;
+  sku      : String @mandatory;
+  quantity : Integer @mandatory;
+  price    : Decimal(9, 2);
 }
 `);
 
@@ -58,8 +68,9 @@ fs.writeFileSync(path.join(FIXTURE, "srv/cat.cds"), `
 using {demo} from '../db/schema';
 
 service CatalogService {
-  entity Customers as projection on demo.Customers;
-  entity Orders    as projection on demo.Orders;
+  entity Customers  as projection on demo.Customers;
+  entity Orders     as projection on demo.Orders;
+  entity OrderItems as projection on demo.OrderItems;
 }
 
 annotate CatalogService.Orders with @odata.draft.enabled;
@@ -72,9 +83,12 @@ annotate CatalogService.Orders with @mcp: {
 
 // Caller declares explicit CRUD modes without draft-* — plugin must still
 // auto-register the draft lifecycle tools (regression on the mid-session fix).
+// The delete mode is included so we can exercise D-DEL-1: active-row delete
+// on a draft-enabled root is a valid operation and must not short-circuit
+// with DRAFT_REQUIRED.
 annotate CatalogService.Orders with @mcp.wrap: {
   tools: true,
-  modes: ['query', 'get', 'create', 'update']
+  modes: ['query', 'get', 'create', 'update', 'delete']
 };
 
 annotate CatalogService.Customers with @mcp: {
@@ -114,6 +128,7 @@ describe("Draft lifecycle — enterprise-grade hardening", () => {
   cds.test(FIXTURE);
 
   const capturedTools = new Map();
+  const capturedMeta = new Map();
 
   beforeAll(async () => {
     const { parseDefinitions } = require("../../lib/annotations/parser");
@@ -121,8 +136,9 @@ describe("Draft lifecycle — enterprise-grade hardening", () => {
     const { registerEntityWrappers } = require("../../lib/mcp/entity-tools");
 
     const server = {
-      registerTool(name, _meta, handler) {
+      registerTool(name, meta, handler) {
         capturedTools.set(name, handler);
+        capturedMeta.set(name, meta);
       },
     };
 
@@ -159,13 +175,15 @@ describe("Draft lifecycle — enterprise-grade hardening", () => {
   };
   const payload = (res) => JSON.parse(res.content[0].text);
 
-  test("explicit @mcp.wrap.modes without draft-* still auto-registers draft tools", () => {
+  test("explicit @mcp.wrap.modes without draft-* still auto-registers draft tools; dead-end active writers are suppressed", () => {
     const registered = Array.from(capturedTools.keys());
+    // D-NEW-1: on pure @odata.draft.enabled roots the plain active-row
+    // create/update tools always fail with DRAFT_REQUIRED, so they aren't
+    // registered. The draft lifecycle trio and the one-shot upsert fully
+    // cover the semantics.
     expect(registered).toEqual(expect.arrayContaining([
       "orders_query",
       "orders_get",
-      "orders_create",
-      "orders_update",
       "orders_draft-new",
       "orders_draft-edit",
       "orders_draft-patch",
@@ -173,7 +191,12 @@ describe("Draft lifecycle — enterprise-grade hardening", () => {
       "orders_draft-discard",
       "orders_draft-upsert",
     ]));
-    expect(registered).not.toContain("orders_delete");
+    expect(registered).not.toContain("orders_create");
+    expect(registered).not.toContain("orders_update");
+    // D-DEL-1: active-row delete is a valid operation on a draft-enabled
+    // root (CAP handles cascade + draft cleanup). `orders_delete` MUST be
+    // registered whenever the caller lists `delete` in @mcp.wrap.modes.
+    expect(registered).toContain("orders_delete");
   });
 
   test("draft-upsert: NEW+SAVE in one tx — no cross-call lock, immediate active row", async () => {
@@ -305,6 +328,26 @@ describe("Draft lifecycle — enterprise-grade hardening", () => {
     }, "alice");
     expect(patched.isError).toBeFalsy();
     expect(payload(patched).title).toBe("Same-user continued");
+
+    // Regression guard for B-03: the draft-patch UPDATE must run as the real
+    // caller, not as cds.User.privileged. `@cds.on.update = $user` stamps from
+    // cds.context.user, so we assert the DraftAdministrativeData.LastChangedByUser
+    // equals alice (the caller) rather than "privileged" (what the orphan-fix
+    // regression produced before).
+    const { SELECT } = cds.ql;
+    const adminRow = await cds.tx({ user: cds.User.privileged }, (tx) =>
+      tx.run(
+        SELECT.from("DRAFT.DraftAdministrativeData")
+          .columns("LastChangedByUser", "InProcessByUser")
+          .where({
+            DraftUUID: { "=": SELECT.one.from("CatalogService.Orders.drafts")
+              .columns("DraftAdministrativeData_DraftUUID")
+              .where({ ID }) },
+          }),
+      ),
+    );
+    expect(adminRow[0].LastChangedByUser).toBe("alice");
+
     await call("orders_draft-discard", { ID }, "alice");
   });
 
@@ -578,15 +621,200 @@ describe("Draft lifecycle — enterprise-grade hardening", () => {
     await call("orders_draft-discard", { ID }, "bob");
   });
 
-  test("active-row create on draft root short-circuits with DRAFT_REQUIRED", async () => {
-    const res = await call("orders_create", {
-      ID: "aaaaaaaa-0001-4000-8000-000000000006",
-      title: "Active create — should fail",
-      priority: "high",
+  test("draft-new returns auto-generated DraftUUID (round-trip for follow-up calls)", async () => {
+    // Regression guard for D-02: the caller used to get back whatever fields
+    // they supplied; auto-generated keys (DraftUUID, and in other schemas the
+    // row ID itself) were omitted. Every follow-up draft-patch / draft-activate
+    // would then fail DRAFT_NOT_FOUND because the caller had no way to address
+    // the new row. We re-read after NEW, so every generated field round-trips.
+    const ID = "aaaaaaaa-0001-4000-8000-000000000020";
+    const created = await call("orders_draft-new", {
+      ID,
+      title: "Round-trip draft",
+      priority: "low",
     }, "alice");
-    expect(res.isError).toBe(true);
-    const err = payload(res);
-    expect(err.error).toBe("DRAFT_REQUIRED");
-    expect(err.message).toMatch(/draft-new/);
+    expect(created.isError).toBeFalsy();
+    const draft = payload(created);
+    expect(draft.ID).toBe(ID);
+    expect(typeof draft.DraftAdministrativeData_DraftUUID).toBe("string");
+    expect(draft.DraftAdministrativeData_DraftUUID.length).toBeGreaterThan(10);
+    await call("orders_draft-discard", { ID }, "alice");
+  });
+
+  test("draft-new input schema hides CAP-internal bookkeeping fields", () => {
+    // Regression guard for D-06: before the filter, `orders_draft-new` offered
+    // IsActiveEntity, HasActiveEntity, HasDraftEntity, SiblingEntity_ID, and
+    // DraftAdministrativeData_DraftUUID as writable optional params. Agents
+    // regularly supplied bogus values for them; CAP either ignored them or
+    // raised cryptic errors. The framework owns these — callers don't set them.
+    const meta = capturedMeta.get("orders_draft-new");
+    expect(meta).toBeDefined();
+    const schema = meta.inputSchema || {};
+    for (const hidden of [
+      "IsActiveEntity",
+      "HasActiveEntity",
+      "HasDraftEntity",
+      "SiblingEntity",
+      "SiblingEntity_ID",
+      "DraftAdministrativeData",
+      "DraftAdministrativeData_DraftUUID",
+    ]) {
+      expect(schema).not.toHaveProperty(hidden);
+    }
+  });
+
+  test("draft-upsert input schema hides CAP-internal draft bookkeeping fields", () => {
+    // D-06 remaining fix: draft-upsert previously leaked the IsActiveEntity /
+    // HasActive / HasDraft / SiblingEntity / DraftAdministrativeData pair as
+    // optional input parameters. These are framework-managed and should never
+    // surface on the writable tool surface.
+    const meta = capturedMeta.get("orders_draft-upsert");
+    expect(meta).toBeDefined();
+    const schema = meta.inputSchema || {};
+    for (const hidden of [
+      "IsActiveEntity",
+      "HasActiveEntity",
+      "HasDraftEntity",
+      "SiblingEntity",
+      "SiblingEntity_ID",
+      "DraftAdministrativeData",
+      "DraftAdministrativeData_DraftUUID",
+    ]) {
+      expect(schema).not.toHaveProperty(hidden);
+    }
+  });
+
+  test("deep insert: draft-new with nested items composition creates parent + children atomically", async () => {
+    // Parent-child schema is the single most common real-world CAP pattern
+    // (Orders + OrderItems, Invoices + Positions, TechObjects + Indicators …).
+    // This exercises what the bookshop-ias Orders/OrderItems fixture covers:
+    // deep-insert of children via the parent draft-new call, with children
+    // carrying their own cuid-generated IDs.
+    const ID = "aaaaaaaa-0001-4000-8000-000000000100";
+    const ITEM1 = "bbbbbbbb-0001-4000-8000-000000000101";
+    const ITEM2 = "bbbbbbbb-0001-4000-8000-000000000102";
+    const created = await call("orders_draft-new", {
+      ID,
+      title: "Order with items",
+      priority: "high",
+      items: [
+        { ID: ITEM1, sku: "SKU-A", quantity: 2, price: 10.00 },
+        { ID: ITEM2, sku: "SKU-B", quantity: 1, price: 25.50 },
+      ],
+    }, "alice");
+    if (created.isError) console.error("deep-insert draft-new failed:", created.content[0].text);
+    expect(created.isError).toBeFalsy();
+    const draft = payload(created);
+    expect(draft.ID).toBe(ID);
+    expect(draft.IsActiveEntity).toBe(false);
+
+    // The child rows must have landed in the OrderItems.drafts shadow table,
+    // bound to the parent via parent_ID. Validate via a privileged read so we
+    // don't get service-layer filtering of drafts by InProcessByUser.
+    const { SELECT } = cds.ql;
+    const items = await cds.tx({ user: cds.User.privileged }, (tx) =>
+      tx.run(SELECT.from("CatalogService.OrderItems.drafts").where({ parent_ID: ID })),
+    );
+    expect(items.length).toBe(2);
+    const skus = items.map((r) => r.sku).sort();
+    expect(skus).toEqual(["SKU-A", "SKU-B"]);
+
+    // Parent activation cascades the children to the active table.
+    const activated = await call("orders_draft-activate", { ID }, "alice");
+    if (activated.isError) console.error("deep-insert activate failed:", activated.content[0].text);
+    expect(activated.isError).toBeFalsy();
+    const activeItems = await cds.tx({ user: cds.User.privileged }, (tx) =>
+      tx.run(SELECT.from("CatalogService.OrderItems").where({ parent_ID: ID })),
+    );
+    expect(activeItems.length).toBe(2);
+  });
+
+  test("D-NEW-1: orders_create / orders_update are not registered on a pure draft root", () => {
+    // The active-row create/update tools on a @odata.draft.enabled root
+    // without `@odata.draft.bypass` always fail with DRAFT_REQUIRED — they
+    // are dead ends that only waste agent tool-call budget. The draft-new
+    // and draft-edit→patch→activate chains fully cover the intent.
+    expect(capturedTools.has("orders_create")).toBe(false);
+    expect(capturedTools.has("orders_update")).toBe(false);
+  });
+
+  test("D-DEL-1: active-row delete on a draft-enabled root succeeds (no DRAFT_REQUIRED)", async () => {
+    // Regression guard — the prior behavior was to short-circuit with
+    // DRAFT_REQUIRED on *any* _delete call for a @odata.draft.enabled root,
+    // leaving callers with no reachable path to permanently remove an
+    // active entity. CAP's DELETE on an active row is a valid operation
+    // (it cascades compositions and cleans up any lingering draft).
+    const ID = "aaaaaaaa-0001-4000-8000-000000000200";
+    const up = await call("orders_draft-upsert", {
+      ID,
+      title: "Order to delete",
+      priority: "high",
+      customer_Customer: "C100",
+      customer_Region: "DE",
+    }, "alice");
+    expect(up.isError).toBeFalsy();
+    expect(payload(up).IsActiveEntity).toBe(true);
+
+    const del = await call("orders_delete", { ID, IsActiveEntity: true }, "alice");
+    if (del.isError) console.error("active delete failed:", del.content[0].text);
+    expect(del.isError).toBeFalsy();
+    const body = payload(del);
+    expect(body.deleted).toBe(true);
+
+    // Row must actually be gone from the active table.
+    const { SELECT } = cds.ql;
+    const leftover = await cds.tx({ user: cds.User.privileged }, (tx) =>
+      tx.run(SELECT.from("CatalogService.Orders").where({ ID })),
+    );
+    expect(leftover.length).toBe(0);
+  });
+
+  test("O-02-A: draft-patch with new items in composition payload propagates DraftUUID + parent FK", async () => {
+    // Regression guard — draft-patch previously routed `{items: [...]}` into
+    // the DB-layer UPDATE set clause and CAP's generic INSERT path didn't
+    // propagate `DraftAdministrativeData_DraftUUID` to the new child row.
+    // Result: SQLITE_CONSTRAINT_NOTNULL on the child drafts table. The
+    // plugin now deep-writes composition children with explicit DraftUUID
+    // + parent-FK stamping.
+    const ID = "aaaaaaaa-0001-4000-8000-000000000210";
+    const created = await call("orders_draft-new", {
+      ID,
+      title: "Order for composition patch",
+      priority: "high",
+      items: [
+        { ID: "cccccccc-0001-4000-8000-000000000211", sku: "SKU-INIT", quantity: 1, price: 5.00 },
+      ],
+    }, "alice");
+    expect(created.isError).toBeFalsy();
+
+    // Add a NEW item via draft-patch (the exact O-02-A repro).
+    const newItemId = "cccccccc-0001-4000-8000-000000000212";
+    const patched = await call("orders_draft-patch", {
+      ID,
+      items: [
+        { ID: newItemId, sku: "SKU-NEW", quantity: 3, price: 9.99 },
+      ],
+    }, "alice");
+    if (patched.isError) console.error("draft-patch with new item failed:", patched.content[0].text);
+    expect(patched.isError).toBeFalsy();
+
+    const { SELECT } = cds.ql;
+    const draftItems = await cds.tx({ user: cds.User.privileged }, (tx) =>
+      tx.run(SELECT.from("CatalogService.OrderItems.drafts").where({ parent_ID: ID })),
+    );
+    // Both items must be present, both stamped with the parent draft's UUID,
+    // and the new one must carry parent_ID for the back-reference.
+    expect(draftItems.length).toBe(2);
+    const newRow = draftItems.find((r) => r.ID === newItemId);
+    expect(newRow).toBeDefined();
+    expect(newRow.sku).toBe("SKU-NEW");
+    expect(newRow.parent_ID).toBe(ID);
+    expect(typeof newRow.DraftAdministrativeData_DraftUUID).toBe("string");
+    expect(newRow.DraftAdministrativeData_DraftUUID.length).toBeGreaterThan(10);
+    // All items in this parent draft must share one DraftUUID.
+    const uuids = new Set(draftItems.map((r) => r.DraftAdministrativeData_DraftUUID));
+    expect(uuids.size).toBe(1);
+
+    await call("orders_draft-discard", { ID }, "alice");
   });
 });

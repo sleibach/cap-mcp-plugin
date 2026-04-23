@@ -74,6 +74,28 @@ describe("query handler result shape", () => {
     expect(res.content[0].text).toMatch(/"a": 1/);
   });
 
+  // Regression guard for D-04. Before the fix, each row of an array payload
+  // became its own `{type:"text", text:...}` content part — the MCP SDK then
+  // concatenated them with newlines, so the agent received
+  // `{...}\n{...}\n...` which is not valid JSON. Callers could not
+  // `JSON.parse` the body. The new shape is a single content part whose text
+  // is the whole array, which parses cleanly into a JS array.
+  test("array payload serialises as a single JSON-array content part", () => {
+    const response = [{ a: 1 }, { a: 2 }, { a: 3 }];
+    const res = asMcpResult(response);
+    expect(res.content).toHaveLength(1);
+    expect(res.content[0].type).toBe("text");
+    const parsed = JSON.parse(res.content[0].text);
+    expect(Array.isArray(parsed)).toBe(true);
+    expect(parsed).toEqual(response);
+  });
+
+  test("empty array payload still produces a parseable single content part", () => {
+    const res = asMcpResult([]);
+    expect(res.content).toHaveLength(1);
+    expect(JSON.parse(res.content[0].text)).toEqual([]);
+  });
+
   test("explain:true populates plan with mode + cqn", () => {
     const q = { SELECT: { from: { ref: ["Books"] } } };
     const res = shapeResult([{ id: 1 }], resAnno, { explain: true, return: "rows" }, q);

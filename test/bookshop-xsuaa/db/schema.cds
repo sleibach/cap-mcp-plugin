@@ -38,6 +38,34 @@ entity Genres : cuid, sap.common.CodeList {
 
 type Price : Decimal(9, 2);
 
+// --------------------------------------------------------------------------------
+// Orders / OrderItems — realistic parent-child schema covering the
+// parent-child pattern most CAP projects use. Uses cuid (UUID) for both
+// roots so the draft lifecycle works without sequence collisions (see
+// B-NEW-1); Integer keys on draft-enabled entities are a known footgun.
+entity Orders : cuid, managed {
+  orderNo      : String @mandatory;
+  customerName : String @mandatory;
+  status       : String enum {
+    open;
+    submitted;
+    fulfilled;
+    cancelled;
+  } default 'open';
+  notes        : String;
+  total        : Decimal(11, 2);
+  currency     : Currency;
+  items        : Composition of many OrderItems
+                   on items.parent = $self;
+}
+
+entity OrderItems : cuid {
+  parent   : Association to Orders;
+  book     : Association to Books;
+  quantity : Integer @mandatory;
+  price    : Decimal(9, 2);
+  amount   : Decimal(11, 2);
+}
 
 // --------------------------------------------------------------------------------
 // Temporary workaround for this situation:

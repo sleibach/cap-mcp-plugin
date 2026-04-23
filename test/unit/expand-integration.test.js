@@ -128,8 +128,13 @@ describe("$expand integration against a real CAP runtime", () => {
     }));
   });
 
-  // Helper: unpack a McpResult -> rows array.
-  const rowsFrom = (res) => res.content.map((c) => JSON.parse(c.text));
+  // Helper: unpack a McpResult -> rows array. Array payloads now arrive as a
+  // single JSON-array content part (see asMcpResult) so the whole array parses
+  // off `content[0].text`.
+  const rowsFrom = (res) => {
+    const parsed = JSON.parse(res.content[0].text);
+    return Array.isArray(parsed) ? parsed : [parsed];
+  };
 
   test("implicit composition expansion returns identifiers + systems by default", async () => {
     const res = await queryHandler({ top: 5 });

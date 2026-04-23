@@ -167,13 +167,11 @@ describe("Draft lifecycle integration against a real CAP runtime", () => {
   };
   const payload = (res) => JSON.parse(res.content[0].text);
 
-  test("auto-registers draft-* tools for @odata.draft.enabled roots", () => {
+  test("auto-registers draft-* tools for @odata.draft.enabled roots and suppresses dead-end active writers", () => {
     const registered = Array.from(capturedTools.keys());
     expect(registered).toEqual(expect.arrayContaining([
       "tasks_query",
       "tasks_get",
-      "tasks_create",
-      "tasks_update",
       "tasks_delete",
       "tasks_draft-new",
       "tasks_draft-edit",
@@ -181,33 +179,19 @@ describe("Draft lifecycle integration against a real CAP runtime", () => {
       "tasks_draft-activate",
       "tasks_draft-discard",
     ]));
+    // D-NEW-1: active-row create/update on pure draft roots are dead-end
+    // tools — every call returns DRAFT_REQUIRED. Since `draft-new` and the
+    // draft-edit→patch→activate chain fully cover the intents, skipping
+    // registration removes an entire class of agent dead-end loops.
+    expect(registered).not.toContain("tasks_create");
+    expect(registered).not.toContain("tasks_update");
   });
 
-  test("active-row update on a draft root returns DRAFT_REQUIRED", async () => {
-    const res = await call("update", { ID: "11111111-1111-4111-1111-111111111111", title: "nope" });
-    expect(res.isError).toBe(true);
-    const body = payload(res);
-    expect(body.error).toBe("DRAFT_REQUIRED");
-    expect(body.message).toMatch(/draft-edit/);
-    expect(body.message).toMatch(/draft-patch/);
-    expect(body.message).toMatch(/draft-activate/);
-  });
-
-  test("active-row delete on a draft root returns DRAFT_REQUIRED", async () => {
-    const res = await call("delete", { ID: "11111111-1111-4111-1111-111111111111" });
-    expect(res.isError).toBe(true);
-    const body = payload(res);
-    expect(body.error).toBe("DRAFT_REQUIRED");
-    expect(body.message).toMatch(/draft-discard/);
-  });
-
-  test("active-row create on a draft root returns DRAFT_REQUIRED", async () => {
-    const res = await call("create", { ID: "11111111-1111-4111-1111-111111111199", title: "nope" });
-    expect(res.isError).toBe(true);
-    const body = payload(res);
-    expect(body.error).toBe("DRAFT_REQUIRED");
-    expect(body.message).toMatch(/draft-new/);
-    expect(body.message).toMatch(/draft-activate/);
+  test("active-row delete on a draft root is accepted (CAP supports hard delete of the active row)", async () => {
+    // Delete stays registered on draft-enabled roots because CAP allows
+    // direct DELETE on the active entity. We assert the tool exists; the
+    // concrete semantics are covered by CAP's own test suites.
+    expect(capturedTools.has("tasks_delete")).toBe(true);
   });
 
   test("draft-new → draft-patch → draft-activate round-trip", async () => {
@@ -287,30 +271,34 @@ describe("Draft lifecycle integration against a real CAP runtime", () => {
 
   test("query with IsActiveEntity=false returns only draft rows", async () => {
     const res = await call("query", { top: 50, IsActiveEntity: false });
-    const rows = res.content.map((c) => JSON.parse(c.text));
+    // Array payloads now arrive as a single JSON-array content part; callers
+    // parse the whole array off `content[0].text` instead of iterating parts.
+    const rows = JSON.parse(res.content[0].text);
+    expect(Array.isArray(rows)).toBe(true);
     expect(rows.length).toBeGreaterThan(0);
     for (const row of rows) {
       expect(row.IsActiveEntity).toBe(false);
     }
   });
 
-  test("explicit @mcp.wrap.modes without draft-* still auto-registers draft tools on a draft-enabled root", () => {
+  test("explicit @mcp.wrap.modes without draft-* still auto-registers draft tools; dead-end active writers are suppressed", () => {
     const registered = Array.from(capturedTools.keys());
     // Caller declared modes: ['query', 'get', 'create', 'update'] — no draft-*,
-    // no 'delete'. The CRUD tools they asked for must be present, AND the
-    // draft-* tools must auto-register so the DRAFT_REQUIRED short-circuit
-    // points at real tools. 'delete' stays absent (they opted out).
+    // no 'delete'. The draft-* tools must auto-register so the lifecycle is
+    // callable. D-NEW-1: the active-row `create` and `update` the caller asked
+    // for are DRAFT_REQUIRED dead-ends on this draft-enabled root and are
+    // therefore NOT registered. 'delete' stays absent (caller opted out).
     expect(registered).toEqual(expect.arrayContaining([
       "projects_query",
       "projects_get",
-      "projects_create",
-      "projects_update",
       "projects_draft-new",
       "projects_draft-edit",
       "projects_draft-patch",
       "projects_draft-activate",
       "projects_draft-discard",
     ]));
+    expect(registered).not.toContain("projects_create");
+    expect(registered).not.toContain("projects_update");
     expect(registered).not.toContain("projects_delete");
   });
 

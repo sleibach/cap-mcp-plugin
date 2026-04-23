@@ -97,3 +97,34 @@ annotate AdminService.Genres with @mcp.wrap: {
     delete: 'Delete a genre by UUID. Fails if still referenced by books or children'
   }
 };
+
+// ---------------------------------------------------------------------------
+// Orders — parent-child schema (Composition of many OrderItems).
+// Not draft-enabled in the xsuaa fixture — tests the classic
+// create/update/delete path on a cuid+managed parent with nested
+// composition writes via deep insert on the active row.
+// ---------------------------------------------------------------------------
+annotate AdminService.Orders with @mcp: {
+  name       : 'admin-orders',
+  description: 'Customer orders with nested line items',
+  resource   : ['filter', 'orderby', 'select', 'top', 'skip']
+};
+
+annotate AdminService.Orders with @mcp.wrap: {
+  tools: true,
+  modes: ['query', 'get', 'create', 'update', 'delete'],
+  hint : {
+    query : 'List orders — filter by status, customerName, orderNo or total',
+    get   : 'Fetch a single order by its UUID, including the nested items composition',
+    create: 'Create an order with nested line items. orderNo + customerName mandatory; pass items=[{book_ID, quantity, price}] for deep insert',
+    update: 'Update an order by ID. Provide only the header fields you want to change — for item edits, use a separate delete+create or a bespoke action',
+    delete: 'Delete an order by ID. Cascades to OrderItems via composition'
+  }
+};
+
+annotate AdminService.Orders with {
+  status   @mcp.hint: 'Order status enum: open | submitted | fulfilled | cancelled. Default is open';
+  currency @mcp.hint: 'ISO currency code for the total — use currency_code in writes';
+  total    @mcp.hint: 'Gross total in the order currency. Decimal(11,2); typically derived from item amounts';
+  items    @mcp.hint: 'Composition of OrderItems — deep-insertable on create. Each item: {book_ID, quantity, price, amount?}';
+};
