@@ -252,7 +252,8 @@ describe("Draft lifecycle integration against a real CAP runtime", () => {
     expect(body.discarded).toBe(true);
 
     const readDraft = await call("get", { ID: id, IsActiveEntity: false });
-    expect(payload(readDraft)).toBeNull();
+    expect(readDraft.isError).toBe(true);
+    expect(payload(readDraft).error).toBe("NOT_FOUND");
   });
 
   test("get with IsActiveEntity=false reads the draft sibling", async () => {
@@ -260,7 +261,8 @@ describe("Draft lifecycle integration against a real CAP runtime", () => {
     await call("draft-new", { ID: id, title: "Still a draft" });
 
     const readActive = await call("get", { ID: id }); // defaults to active
-    expect(payload(readActive)).toBeNull();
+    expect(readActive.isError).toBe(true);
+    expect(payload(readActive).error).toBe("NOT_FOUND");
 
     const readDraft = await call("get", { ID: id, IsActiveEntity: false });
     const draftRow = payload(readDraft);
