@@ -17,6 +17,33 @@ annotate CatalogService.Books with @mcp.wrap: {
   hint : 'Use for read-only lookups of books by id, title, author or genre'
 };
 
+// ---------------------------------------------------------------------------
+// UI annotations for MCP Apps — auto-generates table and detail UIs
+// ---------------------------------------------------------------------------
+annotate CatalogService.Books with @UI: {
+  HeaderInfo: {
+    TypeName      : 'Book',
+    TypeNamePlural: 'Books',
+    Title         : {Value: title},
+    Description   : {Value: descr}
+  },
+  LineItem: [
+    {Value: ID,    Label: 'ID'},
+    {Value: title, Label: 'Title'},
+    {Value: stock, Label: 'Stock'},
+    {Value: price, Label: 'Price'}
+  ],
+  FieldGroup#Details: {
+    Label: 'Book Details',
+    Data : [
+      {Value: title},
+      {Value: descr},
+      {Value: stock},
+      {Value: price}
+    ]
+  }
+};
+
 annotate CatalogService.ListOfBooks with @mcp: {
   name       : 'list-of-books',
   description: 'Flattened list of books with genre and currency symbol resolved',
