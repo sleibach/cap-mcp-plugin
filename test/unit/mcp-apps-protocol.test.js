@@ -39,10 +39,15 @@ const META = {
 function mountTemplate(html) {
     const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]).join("\n;\n");
     let contentHTML = "";
-    const elements = {
-        content: { set innerHTML(v) { contentHTML = v; }, get innerHTML() { return contentHTML; } },
-        "row-info": { textContent: "" },
-    };
+    // Minimal DOM node supporting the methods the templates use.
+    const mkNode = () => ({
+        style: {}, children: [], _text: "", _html: "",
+        set textContent(v) { this._text = v; }, get textContent() { return this._text; },
+        set innerHTML(v) { this._html = v; this.children = []; }, get innerHTML() { return this._html; },
+        setAttribute() {}, appendChild(c) { this.children.push(c); }, addEventListener() {}, onclick: null,
+    });
+    const content = { set innerHTML(v) { contentHTML = v; }, get innerHTML() { return contentHTML; }, appendChild() {} };
+    const elements = { content, "row-info": mkNode() };
     const posted = [];
     const listeners = [];
     const win = {
@@ -52,10 +57,12 @@ function mountTemplate(html) {
         ResizeObserver: function () { this.observe = () => {}; },
     };
     const doc = {
-        documentElement: { getBoundingClientRect: () => ({ height: 240 }), setAttribute() {}, style: {} },
-        getElementById: (id) => elements[id] || { set innerHTML(v) {}, style: {}, textContent: "" },
+        documentElement: { getBoundingClientRect: () => ({ height: 240 }), setAttribute() {}, getAttribute() { return null; }, style: {} },
+        body: { appendChild() {}, removeChild() {} },
+        createElement: () => mkNode(),
+        getElementById: (id) => elements[id] || mkNode(),
     };
-    new Function("window", "document", "console", scripts)(win, doc, { error() {}, debug() {}, log() {} });
+    new Function("window", "document", "console", scripts)(win, doc, { error() {}, debug() {}, log() {}, warn() {}, info() {} });
     return {
         posted,
         hostSend: (m) => listeners.forEach((fn) => fn({ data: m })),
