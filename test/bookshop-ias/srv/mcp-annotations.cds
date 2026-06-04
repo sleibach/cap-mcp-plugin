@@ -17,6 +17,11 @@ annotate CatalogService.Books with @mcp.wrap: {
   hint : 'Use for read-only lookups of books by id, title, author or genre'
 };
 
+// Expand associations (author, genre, currency) so the MCP-App table can
+// resolve the @UI.LineItem association paths (author.ID → name, genre.name,
+// currency.symbol) instead of showing blanks.
+annotate CatalogService.Books with @mcp.expand: 'all';
+
 annotate CatalogService.ListOfBooks with @mcp: {
   name       : 'list-of-books',
   description: 'Flattened list of books with genre and currency symbol resolved',
@@ -68,6 +73,9 @@ annotate AdminService.Books with @mcp.wrap: {
     delete: 'Delete a book by ID. Irreversible; prefer setting stock to 0 first'
   }
 };
+
+// Expand associations so the MCP-App table resolves author/genre/currency.
+annotate AdminService.Books with @mcp.expand: 'all';
 
 // Field-level hints — surfaced as part of the tool description so the LLM
 // picks FK fields over association names and understands business rules.

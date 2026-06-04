@@ -30,6 +30,7 @@
       }
     },
     "mcp": {
+      "name": "Bookshop",
       "auth": "inherit",
       "base_path": "/mcp",
       "trusted_proxies": true,
