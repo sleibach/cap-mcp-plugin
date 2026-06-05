@@ -235,6 +235,24 @@ describe("buildQueryTemplate", () => {
         const html = buildQueryTemplate("Books", uiMeta);
         expect(html).not.toMatch(/cdn\.|unpkg\.com|jsdelivr/);
     });
+
+    test("applies column visibility rules (LineItem / Hidden / service fields)", () => {
+        const genresMeta = parseUiAnnotations({
+            kind: "entity",
+            "@UI.LineItem": [{ $Type: "UI.DataField", Value: { "=": "name" }, Label: "Name" }],
+            elements: {
+                name: {},
+                ID: { "@UI.Hidden": true },
+                descr: { "@title": "Description" },
+            },
+        });
+        const html = buildQueryTemplate("Genres", genresMeta, "Bookshop", null, {
+            exposableFields: [{ path: "descr", label: "Description" }],
+        });
+        expect(html).toContain('"path":"name"');
+        expect(html).not.toContain('"path":"ID"');
+        expect(html).toMatch(/"path":"descr"[^}]*"visible":false/);
+    });
 });
 
 describe("buildDetailTemplate", () => {

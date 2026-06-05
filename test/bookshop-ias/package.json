@@ -25,6 +25,9 @@
           "model": "db/hana"
         }
       },
+      "[development]": {
+        "auth": "dummy"
+      },
       "[production]": {
         "auth": "ias"
       }

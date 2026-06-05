@@ -19,6 +19,7 @@ For protocol details, see the [MCP specification](https://modelcontextprotocol.i
 - Expose CDS entities as MCP resources with OData v4 query support (`$filter`, `$orderby`, `$top`, `$skip`, `$select`).
 - Expose CDS functions and actions as MCP tools — both unbound (service-level) and bound (entity-level).
 - Wrap entities as CRUD-style tools (`query`, `get`, optional `create` / `update`) for LLM tool-use.
+- Auto-generate **MCP Apps** — interactive SAP Fiori UIs (list & object page) from existing `@UI.*` annotations, with Create/Edit/Delete.
 - Declare reusable prompt templates.
 - Request user confirmation or parameter input before tool execution (elicitation).
 - Filter sensitive fields from MCP output via `@mcp.omit`.
@@ -457,6 +458,90 @@ annotate CatalogService with @mcp.prompts: [{
 }];
 ```
 
+## MCP Apps (interactive Fiori UIs)
+
+[MCP Apps](https://modelcontextprotocol.io/extensions/apps/overview) (spec `2026-01-26`) let an MCP tool render an interactive HTML UI inside the host (Claude, ChatGPT, VS Code, …) instead of returning plain text. This plugin auto-generates those UIs from the **SAP Fiori `@UI.*` annotations your services already carry** — no extra annotations needed.
+
+When an entity has `@mcp.wrap.tools` **and** Fiori UI annotations, the plugin registers two `ui://` HTML resources and links them to the entity's `query` / `get` tools via `_meta.ui.resourceUri`:
+
+- **List view** (`ui://query/<Service>_<Entity>`) — a SAP Fiori **List Report** rendered with a real `sap.m.Table` (SAPUI5, Morning/Evening Horizon theme), driven by `@UI.LineItem`.
+- **Object page** (`ui://detail/<Service>_<Entity>`) — a Fiori **Object Page** driven by `@UI.HeaderInfo`, `@UI.Facets` / `@UI.FieldGroup`, and `@UI.DataPoint`.
+
+The host fetches the UI resource when the tool is called and renders it in a sandboxed iframe; the plugin pushes the tool result into it. Nothing changes for hosts that don't support MCP Apps — they keep getting the normal text/JSON tool result.
+
+### What it renders
+
+Driven entirely by standard Fiori annotations on the entity:
+
+| Annotation | Effect in the app |
+| --- | --- |
+| `@UI.LineItem` | Table columns (incl. `DataField`, `DataFieldWithUrl`, `DataFieldForAction`), sorted by `@UI.Importance` |
+| `@UI.LineItem` `@UI.Criticality` | Per-row colored highlight bar |
+| `Criticality` on a column | Cell rendered as a Fiori **ObjectStatus** (semantic color + icon) |
+| `@UI.HeaderInfo` | Object-page title / subtitle / image (`TypeName`, `Title`, `Description`, `ImageUrl`) |
+| `@UI.Facets` / `@UI.FieldGroup` | Object-page sections and field groups |
+| `@UI.DataPoint` + `@UI.HeaderFacets` | KPI / status strip on the object page |
+| `@Common.Text` + `@Common.TextArrangement` | Key/FK columns show their descriptive text (e.g. `author_ID` → author name) |
+| `@UI.Hidden` / `@UI.MultiLineText` | Hidden fields are omitted; long text renders multi-line |
+
+Association columns such as `genre.name` or `currency.symbol` resolve when the query expands those associations — set `@mcp.expand: 'all'` (see [Expand & deep reads](#expand--deep-reads)) on the entity. Flattened projections (`genre.name as genre`) are resolved automatically.
+
+### Write actions (Create / Edit / Delete)
+
+The apps can drive writes by calling the entity's existing write tools **back through the host** — every write goes through the host's own tool-call consent/audit prompt, so the user approves each change. Buttons appear only when `@mcp.wrap.modes` allows the action:
+
+- **List** → a **Create** button opens a form of the entity's writable fields.
+- **Object page** → **Edit** (form pre-filled from the record) and **Delete**.
+
+Draft-enabled roots route create/edit through the one-shot `draft-upsert` tool; non-draft entities use `create` / `update`. Read-only entities (no `create`/`update`/`delete` in `modes`) render without write buttons.
+
+### Example
+
+```cds
+// Reuse the same @UI annotations a Fiori Elements app would use:
+annotate AdminService.Books with @(UI: {
+  HeaderInfo : { TypeName: 'Book', TypeNamePlural: 'Books', Title: { Value: title }, Description: { Value: author.name } },
+  LineItem   : [ { Value: ID }, { Value: author_ID }, { Value: genre.name }, { Value: stock }, { Value: price } ],
+  FieldGroup #Details : { Data: [ { Value: title }, { Value: descr }, { Value: stock }, { Value: price } ] }
+});
+
+annotate AdminService.Books with @mcp.wrap: { tools: true, modes: ['query','get','create','update','delete'] };
+annotate AdminService.Books with @mcp.expand: 'all'; // so association columns resolve
+```
+
+### Requirements & notes
+
+- **Rendering engine**: the list table loads **SAPUI5** (`sap.m`) from `https://ui5.sap.com` as a progressive enhancement. The sandboxed iframe must be allowed to load it — the plugin declares the origin in the resource's `_meta.ui.csp`. If the CDN is blocked, the app falls back to a self-contained, dependency-free CSS table (it never blanks).
+- **Shell title** shows the server name (`cds.mcp.name`); the entity collection name appears in the table toolbar.
+- **Theme** follows the host (SAP Morning Horizon in light, Evening Horizon in dark).
+
+### Disabling & scoping
+
+MCP Apps are fully optional and can be dialed back at any granularity if they cause trouble:
+
+```jsonc
+{
+  "cds": {
+    "mcp": {
+      "apps": {
+        "enabled": true,   // master switch — set false to turn the feature off entirely
+        "write":   true,   // set false for read-only apps (no Create/Edit/Delete buttons)
+        "ui5":     true     // set false to skip the SAPUI5 CDN and always use the CSS table
+      }
+    }
+  }
+}
+```
+
+- **Turn it off completely** → `apps.enabled: false`. The plugin registers no `ui://` resources and adds no `_meta.ui` to any tool; everything reverts to plain text/JSON tool results.
+- **Keep the UI but block edits** → `apps.write: false`. Renders read-only list/detail apps.
+- **Avoid the external SAPUI5 load** (locked-down network, CSP issues, or the framework misbehaving) → `apps.ui5: false`. The list view then uses the self-contained CSS table — no `ui5.sap.com` fetch.
+- **Per-entity opt-out** → annotate a single entity to exclude it while leaving the rest enabled:
+
+  ```cds
+  annotate AdminService.Genres with @mcp.apps: false;
+  ```
+
 ## Configuration reference
 
 ```json
@@ -495,6 +580,9 @@ annotate CatalogService with @mcp.prompts: [{
 | `capabilities.resources.subscribe` | boolean | `false` | Resource subscriptions |
 | `capabilities.tools.listChanged` | boolean | `true` | Tool list-change notifications |
 | `capabilities.prompts.listChanged` | boolean | `true` | Prompt list-change notifications |
+| `apps.enabled` | boolean | `true` | Master switch for [MCP Apps](#mcp-apps-interactive-fiori-uis) (interactive Fiori UIs from `@UI.*` annotations). Set `false` to disable the feature entirely. |
+| `apps.write` | boolean | `true` | When `false`, apps are **read-only** — no Create/Edit/Delete buttons (the write tools themselves are unaffected). |
+| `apps.ui5` | boolean | `true` | When `false`, skip the SAPUI5 CDN bootstrap and always use the self-contained CSS table (use when the iframe can't reach `ui5.sap.com`). |
 
 ## Session store
 
@@ -619,6 +707,7 @@ Further reading: [docs/entity-tools.md](./docs/entity-tools.md).
 - Dynamic resource queries must supply all declared query parameters (SDK limitation).
 - Elicitation is supported for direct tools only, not entity wrappers.
 - Each MCP client opens its own session; monitor memory when running many concurrent clients.
+- [MCP Apps](#mcp-apps-interactive-fiori-uis) need a host that supports the MCP Apps extension to render the UI; the list table's full SAPUI5 rendering also requires the iframe to load `ui5.sap.com` (otherwise it falls back to the CSS table). The object-page detail view is rendered with self-contained CSS (not SAPUI5).
 
 ## Contributing
 
