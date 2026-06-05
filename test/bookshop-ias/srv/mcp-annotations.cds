@@ -138,3 +138,26 @@ annotate AdminService.Orders with {
   total    @mcp.hint: 'Gross total in the order currency. Decimal(11,2); typically derived from item amounts';
   items    @mcp.hint: 'Composition of OrderItems — deep-insertable on draft-new. Each item: {book_ID, quantity, price, amount?}';
 };
+
+// ---------------------------------------------------------------------------
+// Prompt template — guided book creation. Clients that support MCP prompts
+// render the inputs as a form; the filled values are substituted into the
+// template ({{key}}) and returned as a user message that drives the
+// admin-books create tool.
+// ---------------------------------------------------------------------------
+annotate AdminService with @mcp.prompts: [{
+  name       : 'create-book',
+  title      : 'Create a Book',
+  description: 'Guided prompt that collects the details of a new book and creates it in the catalog',
+  role       : 'user',
+  template   : 'Create a new book in the catalog using the admin-books create tool. Title: "{{title}}" (mandatory). Author ID: {{author_ID}} (mandatory integer FK — if it is unknown, look the author up first via admin-authors and use its ID). Genre ID: {{genre_ID}} (UUID, optional). Stock: {{stock}} (non-negative integer). Price: {{price}} {{currency_code}}. Description: {{descr}}. Omit any field whose value was left empty.',
+  inputs     : [
+    {key: 'title',         type: 'String'},
+    {key: 'author_ID',     type: 'String'},
+    {key: 'genre_ID',      type: 'String'},
+    {key: 'stock',         type: 'String'},
+    {key: 'price',         type: 'String'},
+    {key: 'currency_code', type: 'String'},
+    {key: 'descr',         type: 'String'}
+  ]
+}];
