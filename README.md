@@ -180,7 +180,7 @@ Enable it globally:
 }
 ```
 
-The consolidated tool takes a `resource` discriminator (an enum of the bundled resource names) plus `mode` (`query` | `get`) and generic OData-style params (`filter`, `select`, `orderby`, `top`, `skip`, `expand`, `q`, `return`, `aggregate`, `IsActiveEntity`). Its description enumerates every bundled resource with its keys and read modes; for a resource's exact fields and example payloads, the agent calls `cap_describe_model` with the resource name. The `filter` param is a CQL/CDS boolean expression (e.g. `stock > 0 and price <= 50`).
+The consolidated tool takes a `resource` discriminator (an enum of the bundled resource names) plus `mode` (`query` | `get`) and generic params (`filter`, `select`, `orderby`, `top`, `skip`, `expand`, `q`, `return`, `aggregate`, `IsActiveEntity`). Its description enumerates every bundled resource with its keys and read modes; for a resource's exact fields and example payloads, the agent calls `cap_describe_model` with the resource name. The `filter` param is a standard **OData `$filter`** expression (e.g. `stock gt 0 and price le 50`, `contains(title,'sql')`, `genre_ID in (1,2)`), parsed via CAP's own OData parser — agents tend to be more fluent in OData filter syntax than CQL.
 
 Grouping:
 

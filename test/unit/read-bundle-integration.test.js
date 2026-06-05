@@ -237,12 +237,33 @@ describe("Read bundling against a real CAP runtime", () => {
       const res = await callAdmin({
         resource: "admin-books",
         mode: "query",
-        filter: "stock > 0",
+        filter: "stock gt 0",
       });
       expect(res.isError).toBeFalsy();
       const data = rows(res);
       const ids = data.map((r) => r.ID).sort();
       expect(ids).toEqual([1, 3]);
+    });
+
+    test("query with an OData function filter (contains) works", async () => {
+      const res = await callAdmin({
+        resource: "admin-books",
+        mode: "query",
+        filter: "contains(title,'eazle')",
+      });
+      expect(res.isError).toBeFalsy();
+      const data = rows(res);
+      expect(data.map((r) => r.ID)).toEqual([2]); // Catweazle
+    });
+
+    test("a malformed OData filter is reported as FILTER_PARSE_ERROR", async () => {
+      const res = await callAdmin({
+        resource: "admin-books",
+        mode: "query",
+        filter: "stock >> 0",
+      });
+      expect(res.isError).toBe(true);
+      expect(res.content[0].text).toContain("FILTER_PARSE_ERROR");
     });
 
     test("query with orderby + top sorts and limits", async () => {
@@ -262,7 +283,7 @@ describe("Read bundling against a real CAP runtime", () => {
       const res = await callAdmin({
         resource: "admin-books",
         mode: "query",
-        filter: "stock > 0",
+        filter: "stock gt 0",
         return: "count",
       });
       expect(JSON.parse(res.content[0].text)).toEqual({ count: 2 });
