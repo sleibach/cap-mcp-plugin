@@ -164,6 +164,39 @@ Available modes:
 - `draft-discard` — drop the pending draft without touching the active row.
 - `draft-upsert` — one-shot: creates a draft and immediately activates it in a single transaction (use when all required fields are known up front).
 
+### Read bundling (`read_bundle`)
+
+A model that wraps many entities produces a lot of tools — two per entity for reads alone (`_query` + `_get`). MCP clients that load tools on demand via semantic search struggle when dozens of near-identical read tools compete for the same matches. **Read bundling** (opt-in) collapses the per-entity `query`/`get` tools into a single consolidated **read tool per group**, so e.g. 30 `mails-*_query`/`_get` tools become one `MailService_read`. Write and draft tools stay per-entity (precise schemas, explicit dangerous surface).
+
+Enable it globally:
+
+```json
+{
+  "cds": {
+    "mcp": {
+      "read_bundle": { "enabled": true, "group_by": "service" }
+    }
+  }
+}
+```
+
+The consolidated tool takes a `resource` discriminator (an enum of the bundled resource names) plus `mode` (`query` | `get`) and generic OData-style params (`filter`, `select`, `orderby`, `top`, `skip`, `expand`, `q`, `return`, `aggregate`, `IsActiveEntity`). Its description enumerates every bundled resource with its keys and read modes; for a resource's exact fields and example payloads, the agent calls `cap_describe_model` with the resource name. The `filter` param is a CQL/CDS boolean expression (e.g. `stock > 0 and price <= 50`).
+
+Grouping:
+
+- `group_by: "service"` (default) — one read tool per CAP service (`<Service>_read`). Zero extra annotation work.
+- `group_by: "annotation"` — group by `@mcp.wrap.group` on each entity, falling back to the service name when an entity has no group. Lets you split a large service into a few semantic bundles:
+
+  ```cds
+  annotate MailService.Mails with @mcp.wrap: { tools: true, modes: ['query', 'get'], group: 'mails' };
+  ```
+
+Notes:
+
+- **Opt-in** — with `read_bundle.enabled: false` (default) the per-entity `query`/`get` tools are registered exactly as before. Nothing changes until you turn it on.
+- **Auth** — a bundle lists when the caller can read at least one member; the specific resource is re-checked at call time (`@requires` / `@restrict` per entity is honored, returning `FORBIDDEN` for resources the caller can't read).
+- `tool_suffix` (default `"read"`) controls the tool-name suffix: `MailService_read`.
+
 ### Draft lifecycle
 
 For draft-enabled roots (annotated with `@odata.draft.enabled` or `@fiori.draft.enabled`), the wrapper:
@@ -583,6 +616,9 @@ MCP Apps are fully optional and can be dialed back at any granularity if they ca
 | `apps.enabled` | boolean | `true` | Master switch for [MCP Apps](#mcp-apps-interactive-fiori-uis) (interactive Fiori UIs from `@UI.*` annotations). Set `false` to disable the feature entirely. |
 | `apps.write` | boolean | `true` | When `false`, apps are **read-only** — no Create/Edit/Delete buttons (the write tools themselves are unaffected). |
 | `apps.ui5` | boolean | `true` | When `false`, skip the SAPUI5 CDN bootstrap and always use the self-contained CSS table (use when the iframe can't reach `ui5.sap.com`). |
+| `read_bundle.enabled` | boolean | `false` | Collapse per-entity `query`/`get` tools into one consolidated read tool per group. See [Read bundling](#read-bundling-read_bundle). Write/draft tools stay per-entity. |
+| `read_bundle.group_by` | `"service"` \| `"annotation"` | `"service"` | How read tools are grouped: one per CAP service, or by `@mcp.wrap.group` (falling back to service). |
+| `read_bundle.tool_suffix` | string | `"read"` | Suffix for the consolidated tool name, e.g. `MailService_read`. |
 
 ## Session store
 
